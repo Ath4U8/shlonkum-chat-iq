@@ -19,9 +19,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - iraq_map.png
-    - ishtar_gate.jfif
-  fonts:
-    - family: NotoNaskhArabic
-      fonts:
-        - asset: fonts/NotoNaskhArabic-Regular.ttf
+    - assets/iraq_map.png
+    - assets/ishtar_gate.jfif
