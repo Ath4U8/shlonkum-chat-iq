@@ -23,10 +23,6 @@ flutter:
     - assets/iraq_map.png
     - assets/ishtar_gate.jfif
     - assets/icon.png
-  fonts:
-    - family: NotoNaskhArabic
-      fonts:
-        - asset: fonts/NotoNaskhArabic-Regular.ttf
 
 flutter_launcher_icons:
   android: true
