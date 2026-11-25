@@ -13,7 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 const String supabaseUrl = 'https://tfcpkoozqttdzligfizu.supabase.co';
-const String supabaseAnonKey = 'PUT_YOUR_ANON_KEY_HERE'; // من Supabase Settings > API
+const String supabaseAnonKey = 'sb_publishable_nbqpxqvicOkjDlrtQmbrug_J0r557Sv'; // من Supabase Settings > API
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
