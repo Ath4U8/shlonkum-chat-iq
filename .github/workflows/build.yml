@@ -24,6 +24,14 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
+      - name: Create Flutter project structure
+        run: |
+          flutter create --project-name shlonkum_chat_iq --org com.shlonkum.chat .
+          mkdir -p assets
+          cp main.dart lib/main.dart
+          cp iraq_map.png assets/iraq_map.png || true
+          cp ishtar_gate.jfif assets/ishtar_gate.jfif || true
+
       - name: Get packages
         run: flutter pub get
 
