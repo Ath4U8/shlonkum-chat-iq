@@ -26,9 +26,12 @@ jobs:
 
       - name: Create Flutter project structure
         run: |
+          cp pubspec.yaml /tmp/pubspec-backup.yaml
+          cp main.dart /tmp/main-backup.dart
           flutter create --project-name shlonkum_chat_iq --org com.shlonkum.chat .
+          cp /tmp/pubspec-backup.yaml pubspec.yaml
+          cp /tmp/main-backup.dart lib/main.dart
           mkdir -p assets
-          cp main.dart lib/main.dart
           cp iraq_map.png assets/iraq_map.png || true
           cp ishtar_gate.jfif assets/ishtar_gate.jfif || true
 
