@@ -1,4 +1,3 @@
-
 // شلونكم چات - IQ | Shlonkum Chat - IQ
 // التحديث الأخير المعتمد - عام لكل العراق
 // - ماكو أسماء محافظات بأي مكان
@@ -201,8 +200,8 @@ class IshtarWatermark extends StatelessWidget {
     return Positioned.fill(
       child: Opacity(
         opacity: opacity,
-        // الملف: assets/ishtar_gate.jpg - بوابة عشتار
-        child: Image.asset('assets/ishtar_gate.jpg', fit: BoxFit.cover, alignment: Alignment.center),
+        // الملف: assets/ishtar_gate.jfif - بوابة عشتار
+        child: Image.asset('assets/ishtar_gate.jfif', fit: BoxFit.cover, alignment: Alignment.center),
       ),
     );
   }
