@@ -1,6 +1,6 @@
 
 // شلونكم چات - IQ | Shlonkum Chat - IQ
-// التحديث الأخير المعتمد - عام لكل العراق
+// التحديث الأخير المعتمد - نسخة مصححة 2 - الملفات بالجذر - عام لكل العراق
 // - ماكو أسماء محافظات بأي مكان
 // - خارطة العراق 20% ثابتة كملصق بالهيدر
 // - بوابة عشتار هي العلامة المائية الوحيدة
@@ -89,10 +89,10 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               children: [
                 // خارطة العراق - 20% من عرض الشاشة - ثابتة كملصق
-                // الملف: assets/iraq_map.png - خارطة العراق بعلم العراق
+                // الملف: iraq_map.png - خارطة العراق بعلم العراق
                 SizedBox(
                   width: MediaQuery.of(context).size.width * 0.20,
-                  child: Image.asset('assets/iraq_map.png', fit: BoxFit.contain),
+                  child: Image.asset('iraq_map.png', fit: BoxFit.contain),
                 ),
                 const SizedBox(height: 12),
                 const Text('شلونكم چات - IQ', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF1B3A8F))),
@@ -168,7 +168,7 @@ class _MainShellState extends State<MainShell> {
           children: [
             // خارطة العراق 20% - ثابتة كملصق
             SizedBox(width: MediaQuery.of(context).size.width * 0.20, height: 32,
-              child: Image.asset('assets/iraq_map.png', fit: BoxFit.contain)),
+              child: Image.asset('iraq_map.png', fit: BoxFit.contain)),
             const SizedBox(width: 8),
             const Text('شلونكم چات - IQ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           ],
@@ -201,8 +201,8 @@ class IshtarWatermark extends StatelessWidget {
     return Positioned.fill(
       child: Opacity(
         opacity: opacity,
-        // الملف: assets/ishtar_gate.jpg - بوابة عشتار
-        child: Image.asset('assets/ishtar_gate.jpg', fit: BoxFit.cover, alignment: Alignment.center),
+        // الملف: ishtar_gate.jfif - بوابة عشتار
+        child: Image.asset('ishtar_gate.jfif', fit: BoxFit.cover, alignment: Alignment.center),
       ),
     );
   }
