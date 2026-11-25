@@ -267,7 +267,7 @@ class ChatsScreen extends StatefulWidget {
 class _ChatsScreenState extends State<ChatsScreen> {
   String _q = '';
   bool _loading = true;
-  List> _chats = [];
+  List<dynamic> _chats = [];
 
   @override
   void initState() {
@@ -283,7 +283,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
           .order('created_at', ascending: true);
       if (!mounted) return;
       setState(() {
-        _chats = List>.from(data);
+        _chats = List<dynamic>.from(data);
         _loading = false;
       });
     } catch (_) {
@@ -386,7 +386,7 @@ class ChatDetail extends StatefulWidget {
 class _ChatDetailState extends State<ChatDetail> {
   final _ctrl = TextEditingController();
   final _scrollCtrl = ScrollController();
-  final List> _msgs = [];
+  final List<dynamic> _msgs = [];
   RealtimeChannel? _channel;
   bool _loading = true;
   bool _sending = false;
@@ -414,7 +414,7 @@ class _ChatDetailState extends State<ChatDetail> {
       setState(() {
         _msgs
           ..clear()
-          ..addAll(List>.from(rows));
+          ..addAll(List<dynamic>.from(rows));
         _loading = false;
       });
       _scrollToBottom();
@@ -431,7 +431,7 @@ class _ChatDetailState extends State<ChatDetail> {
               value: widget.chatId!,
             ),
             callback: (payload) {
-              final newRow = Map<String, dynamic>.from(payload.newRecord);
+              final newRow = payload.newRecord;
               if (!mounted) return;
               final exists = _msgs.any((m) => m['id'] == newRow['id']);
               if (!exists) {
