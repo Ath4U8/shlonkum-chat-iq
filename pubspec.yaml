@@ -1,5 +1,5 @@
 name: shlonkum_chat_iq
-description: شلونكم چات - IQ - تطبيق تواصل عراقي
+description: شلونكم چات - IQ - تطبيق تواصل عراقي لكل العراق
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   supabase_flutter: ^2.5.0
+  flutter_launcher_icons: ^0.14.3
 
 dev_dependencies:
   flutter_test:
@@ -21,3 +22,14 @@ flutter:
   assets:
     - assets/iraq_map.png
     - assets/ishtar_gate.jfif
+    - assets/icon.png
+  fonts:
+    - family: NotoNaskhArabic
+      fonts:
+        - asset: fonts/NotoNaskhArabic-Regular.ttf
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon.png"
+  min_sdk_android: 21
