@@ -4,6 +4,14 @@ import 'auth_screens.dart';
 
 final _supabase = Supabase.instance.client;
 
+Map<String, dynamic> _asMap(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) {
+    return value.map((k, v) => MapEntry(k.toString(), v));
+  }
+  return <String, dynamic>{};
+}
+
 class HomeShellScreen extends StatefulWidget {
   final double watermarkOpacity;
   final VoidCallback onSignedOut;
@@ -85,7 +93,7 @@ class ChatsTab extends StatefulWidget {
 class _ChatsTabState extends State<ChatsTab> {
   bool _loading = true;
   String? _error;
-  List> _conversations = [];
+  List<dynamic> _conversations = [];
 
   @override
   void initState() {
@@ -118,13 +126,14 @@ class _ChatsTabState extends State<ChatsTab> {
           .order('created_at', ascending: false)
           .limit(60);
 
-      final Map<String, Map<String, dynamic>> grouped = {};
-      for (final item in rows) {
+      final grouped = <String, dynamic>{};
+      for (final raw in rows) {
+        final item = _asMap(raw);
         final sender = item['sender_id']?.toString() ?? '';
         final receiver = item['receiver_id']?.toString() ?? '';
         final peerId = sender == uid ? receiver : sender;
         if (peerId.isEmpty || grouped.containsKey(peerId)) continue;
-        grouped[peerId] = {
+        grouped[peerId] = <String, dynamic>{
           'peer_id': peerId,
           'last_message': item['content']?.toString() ?? '',
           'created_at': item['created_at']?.toString() ?? '',
@@ -138,12 +147,15 @@ class _ChatsTabState extends State<ChatsTab> {
             .select('id, display_name, username')
             .inFilter('id', peerIds);
 
-        for (final p in profiles) {
+        for (final rawProfile in profiles) {
+          final p = _asMap(rawProfile);
           final pid = p['id']?.toString() ?? '';
           if (grouped.containsKey(pid)) {
-            grouped[pid]!['display_name'] =
+            final entry = _asMap(grouped[pid]);
+            entry['display_name'] =
                 p['display_name']?.toString() ?? 'مستخدم شلونكم';
-            grouped[pid]!['username'] = p['username']?.toString() ?? '';
+            entry['username'] = p['username']?.toString() ?? '';
+            grouped[pid] = entry;
           }
         }
       }
@@ -204,7 +216,7 @@ class _ChatsTabState extends State<ChatsTab> {
                           itemCount: _conversations.length,
                           separatorBuilder: (_, __) => const Divider(height: 1),
                           itemBuilder: (context, index) {
-                            final chat = _conversations[index];
+                            final chat = _asMap(_conversations[index]);
                             final name =
                                 chat['display_name']?.toString() ?? 'مستخدم';
                             final msg = chat['last_message']?.toString() ?? '';
@@ -327,18 +339,24 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
           Column(
             children: [
               Expanded(
-                child: StreamBuilder<List>>(
+                child: StreamBuilder<dynamic>(
                   stream: stream,
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    final filtered = snapshot.data!.where((m) {
+                    final rawList =
+                        snapshot.data is List ? snapshot.data as List : [];
+                    final filtered = <dynamic>[];
+                    for (final raw in rawList) {
+                      final m = _asMap(raw);
                       final s = m['sender_id']?.toString() ?? '';
                       final r = m['receiver_id']?.toString() ?? '';
-                      return (s == uid && r == widget.peerId) ||
-                          (s == widget.peerId && r == uid);
-                    }).toList();
+                      if ((s == uid && r == widget.peerId) ||
+                          (s == widget.peerId && r == uid)) {
+                        filtered.add(m);
+                      }
+                    }
 
                     if (filtered.isEmpty) {
                       return const Center(
@@ -350,7 +368,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
                       padding: const EdgeInsets.all(14),
                       itemCount: filtered.length,
                       itemBuilder: (context, index) {
-                        final item = filtered[index];
+                        final item = _asMap(filtered[index]);
                         final isMe = item['sender_id']?.toString() == uid;
                         return Align(
                           alignment: isMe
@@ -431,7 +449,7 @@ class FriendsTab extends StatefulWidget {
 class _FriendsTabState extends State<FriendsTab> {
   final TextEditingController _searchCtrl = TextEditingController();
   bool _loading = true;
-  List> _users = [];
+  List<dynamic> _users = [];
 
   @override
   void initState() {
@@ -450,18 +468,25 @@ class _FriendsTabState extends State<FriendsTab> {
           .limit(50);
 
       final q = query.trim().toLowerCase();
-      final list = rows.where((u) {
+      final list = <dynamic>[];
+      for (final raw in rows) {
+        final u = _asMap(raw);
         final id = u['id']?.toString() ?? '';
-        if (uid != null && id == uid) return false;
-        if (q.isEmpty) return true;
+        if (uid != null && id == uid) continue;
+        if (q.isEmpty) {
+          list.add(u);
+          continue;
+        }
         final name = (u['display_name']?.toString() ?? '').toLowerCase();
         final uname = (u['username']?.toString() ?? '').toLowerCase();
-        return name.contains(q) || uname.contains(q);
-      }).toList();
+        if (name.contains(q) || uname.contains(q)) {
+          list.add(u);
+        }
+      }
 
       if (!mounted) return;
       setState(() {
-        _users = List>.from(list);
+        _users = list;
         _loading = false;
       });
     } catch (_) {
@@ -524,7 +549,7 @@ class _FriendsTabState extends State<FriendsTab> {
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             itemCount: _users.length,
                             itemBuilder: (context, index) {
-                              final u = _users[index];
+                              final u = _asMap(_users[index]);
                               final name =
                                   u['display_name']?.toString() ?? 'مستخدم';
                               final uname = u['username']?.toString() ?? '';
@@ -624,7 +649,7 @@ class ProfileTab extends StatefulWidget {
 }
 
 class _ProfileTabState extends State<ProfileTab> {
-  Map<String, dynamic>? _profile;
+  dynamic _profile;
   bool _loading = true;
 
   @override
@@ -668,10 +693,10 @@ class _ProfileTabState extends State<ProfileTab> {
     const primaryBlue = Color(0xFF1B3A8F);
     const softBg = Color(0xFFF7F5EF);
 
-    final name = _profile?['display_name']?.toString() ?? 'مستخدم شلونكم';
-    final username = _profile?['username']?.toString() ?? '';
-    final bio =
-        _profile?['bio']?.toString() ?? 'أهلاً بكم في شلونكم چات - IQ';
+    final map = _asMap(_profile);
+    final name = map['display_name']?.toString() ?? 'مستخدم شلونكم';
+    final username = map['username']?.toString() ?? '';
+    final bio = map['bio']?.toString() ?? 'أهلاً بكم في شلونكم چات - IQ';
 
     return Scaffold(
       backgroundColor: softBg,
