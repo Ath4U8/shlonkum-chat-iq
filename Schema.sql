@@ -65,14 +65,40 @@ on public.profiles for update
 using (auth.uid() = id)
 with check (auth.uid() = id);
 
--- 2. جدول الرسائل المباشرة
+-- 2. جدول الرسائل المباشرة ومعالجة أي أعمدة قديمة
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),
-  sender_id uuid not null references auth.users(id) on delete cascade,
-  receiver_id uuid not null references auth.users(id) on delete cascade,
-  content text not null check (char_length(trim(content)) > 0),
+  sender_id uuid references auth.users(id) on delete cascade,
+  receiver_id uuid references auth.users(id) on delete cascade,
+  content text,
   created_at timestamptz not null default now()
 );
+
+alter table public.messages
+add column if not exists sender_id uuid references auth.users(id) on delete cascade;
+
+alter table public.messages
+add column if not exists receiver_id uuid references auth.users(id) on delete cascade;
+
+alter table public.messages
+add column if not exists content text;
+
+alter table public.messages
+add column if not exists created_at timestamptz not null default now();
+
+-- إذا كان عمود recipient_id موجوداً من مخطط سابق، انقل قيمه إلى receiver_id
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'messages'
+      and column_name = 'recipient_id'
+  ) then
+    execute 'update public.messages set receiver_id = recipient_id where receiver_id is null and recipient_id is not null';
+  end if;
+end $$;
 
 create index if not exists idx_messages_sender_receiver_time
 on public.messages (sender_id, receiver_id, created_at desc);
