@@ -53,7 +53,43 @@ jobs:
           [ -f /tmp/shlonkum_backup/main.dart ] && cp -f /tmp/shlonkum_backup/main.dart lib/main.dart
           [ -f /tmp/shlonkum_backup/auth_screens.dart ] && cp -f /tmp/shlonkum_backup/auth_screens.dart lib/auth_screens.dart
           [ -f /tmp/shlonkum_backup/home_screens.dart ] && cp -f /tmp/shlonkum_backup/home_screens.dart lib/home_screens.dart
-          ls -la lib assets
+
+          python3 -c '
+          import os, re, shutil
+          from PIL import Image
+
+          manifest_path = "android/app/src/main/AndroidManifest.xml"
+          if os.path.exists(manifest_path):
+              with open(manifest_path, "r", encoding="utf-8") as f:
+                  content = f.read()
+              if "android:label=" in content:
+                  content = re.sub(r"android:label=\"[^\"]*\"", "android:label=\"شلونكم IQ\"", content)
+              else:
+                  content = content.replace("<application", "<application android:label=\"شلونكم IQ\"", 1)
+              with open(manifest_path, "w", encoding="utf-8") as f:
+                  f.write(content)
+
+          anydpi_dir = "android/app/src/main/res/mipmap-anydpi-v26"
+          if os.path.exists(anydpi_dir):
+              shutil.rmtree(anydpi_dir)
+
+          icon_src = "assets/icon.png"
+          if os.path.exists(icon_src):
+              sizes = {
+                  "mipmap-mdpi": 48,
+                  "mipmap-hdpi": 72,
+                  "mipmap-xhdpi": 96,
+                  "mipmap-xxhdpi": 144,
+                  "mipmap-xxxhdpi": 192,
+              }
+              img = Image.open(icon_src).convert("RGBA")
+              for folder, px in sizes.items():
+                  out_dir = os.path.join("android/app/src/main/res", folder)
+                  os.makedirs(out_dir, exist_ok=True)
+                  resized = img.resize((px, px), Image.Resampling.LANCZOS)
+                  resized.save(os.path.join(out_dir, "ic_launcher.png"), format="PNG")
+                  resized.save(os.path.join(out_dir, "ic_launcher_round.png"), format="PNG")
+          '
 
       - name: Install dependencies
         run: flutter pub get
