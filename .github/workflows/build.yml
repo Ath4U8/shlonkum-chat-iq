@@ -20,6 +20,9 @@ jobs:
           cp -f lib/*.dart /tmp/project_backup/ 2>/dev/null || true
           cp -f pubspec.yaml /tmp/project_backup/ 2>/dev/null || true
           cp -f pubspec.lock /tmp/project_backup/ 2>/dev/null || true
+          cp -f iraq_map.png /tmp/project_backup/ 2>/dev/null || true
+          cp -f ishtar_gate.jfif /tmp/project_backup/ 2>/dev/null || true
+          cp -f icon.png /tmp/project_backup/ 2>/dev/null || true
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -27,19 +30,12 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Pillow (PIL)
-        run: python -m pip install --upgrade pip && pip install pillow
-
-      - name: Set up Flutter
+      - name: Set up Flutter 3.35.7
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.35.7'
           channel: 'stable'
+          cache: true
 
       - name: Recreate clean Android project and restore files
         run: |
@@ -49,26 +45,17 @@ jobs:
           cp -f /tmp/project_backup/pubspec.lock ./pubspec.lock 2>/dev/null || true
           mkdir -p lib
           cp -f /tmp/project_backup/*.dart lib/ 2>/dev/null || true
+          mkdir -p assets
+          cp -f /tmp/project_backup/iraq_map.png assets/iraq_map.png 2>/dev/null || true
+          cp -f /tmp/project_backup/ishtar_gate.jfif assets/ishtar_gate.jfif 2>/dev/null || true
+          cp -f /tmp/project_backup/icon.png assets/icon.png 2>/dev/null || true
+          ls -la assets/ || true
+          ls -la lib/ || true
 
-      - name: Ensure supabase_flutter exists in pubspec.yaml
+      - name: Clean and install dependencies
         run: |
-          if ! grep -q "supabase_flutter:" pubspec.yaml; then
-            flutter pub add supabase_flutter
-          fi
-
-      - name: Fix Gradle wrapper and patch app_links SDK properties
-        run: |
-          sed -i 's/gradle-[0-9.]*-all.zip/gradle-8.5-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
-          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' android/app/build.gradle || true
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle || true
-          sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle || true
-          sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle || true
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
-          sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' android/app/build.gradle || true
-          find /home/runner/.pub-cache/hosted/pub.dev -path "*/app_links-*/android/build.gradle" -exec sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g; s/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' {} + || true
-
-      - name: Install Flutter dependencies
-        run: flutter pub get
+          flutter clean
+          flutter pub get
 
       - name: Build APK
         run: flutter build apk --release --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
