@@ -1,729 +1,425 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'home_screens.dart';
 
-final _supabase = Supabase.instance.client;
+String? normalizeIraqiPhone(String rawInput) {
+  String cleaned = rawInput.trim().replaceAll(RegExp(r'[\s\-\(\)]'), '');
+  if (cleaned.startsWith('00964')) {
+    cleaned = '+964${cleaned.substring(5)}';
+  } else if (cleaned.startsWith('964')) {
+    cleaned = '+$cleaned';
+  } else if (cleaned.startsWith('07')) {
+    cleaned = '+964${cleaned.substring(1)}';
+  } else if (cleaned.startsWith('7') && cleaned.length == 10) {
+    cleaned = '+964$cleaned';
+  }
 
-class IshtarWatermark extends StatelessWidget {
-  final double opacity;
-  const IshtarWatermark({super.key, this.opacity = 0.08});
+  final validRegex = RegExp(r'^\+9647[3-9]\d{8}$');
+  if (!validRegex.hasMatch(cleaned)) {
+    return null;
+  }
+  return cleaned;
+}
+
+class CreatorWatermark extends StatelessWidget {
+  const CreatorWatermark({super.key});
 
   @override
   Widget build(BuildContext context) {
-    if (opacity <= 0.001) return const SizedBox.shrink();
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: Opacity(
-          opacity: opacity,
-          child: Image.asset(
-            'assets/ishtar_gate.jfif',
-            fit: BoxFit.cover,
-            alignment: Alignment.center,
-          ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.only(top: 10, bottom: 10),
+      alignment: Alignment.center,
+      child: Text(
+        'Created by: Atheer Sami',
+        textDirection: TextDirection.ltr,
+        style: TextStyle(
+          color: const Color(0xFF0D47A1).withValues(alpha: 0.78),
+          fontSize: 13.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
         ),
       ),
     );
   }
 }
 
-class EngravedCreatorWatermark extends StatelessWidget {
-  const EngravedCreatorWatermark({super.key});
+class IraqIdentityBackground extends StatelessWidget {
+  final Widget child;
+  final double mapHeightFraction;
 
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: Padding(
-        padding: const EdgeInsets.only(top: 20, bottom: 8),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Transform.translate(
-              offset: const Offset(0, 1),
-              child: const Text(
-                'Created by: Atheer Sami',
-                textDirection: TextDirection.ltr,
-                style: TextStyle(
-                  fontSize: 12,
-                  letterSpacing: 1.2,
-                  fontWeight: FontWeight.w500,
-                  color: Color(0xCCFFFFFF),
-                ),
-              ),
-            ),
-            const Text(
-              'Created by: Atheer Sami',
-              textDirection: TextDirection.ltr,
-              style: TextStyle(
-                fontSize: 12,
-                letterSpacing: 1.2,
-                fontWeight: FontWeight.w500,
-                color: Color(0x886E7785),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 1. شاشة إدخال رقم الهاتف العراقي
-class PhoneEntryScreen extends StatefulWidget {
-  final double watermarkOpacity;
-  final VoidCallback onAuthSuccess;
-
-  const PhoneEntryScreen({
+  const IraqIdentityBackground({
     super.key,
-    this.watermarkOpacity = 0.08,
-    required this.onAuthSuccess,
+    required this.child,
+    this.mapHeightFraction = 0.30,
   });
 
   @override
-  State<PhoneEntryScreen> createState() => _PhoneEntryScreenState();
+  Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Opacity(
+            opacity: 0.14,
+            child: Image.asset(
+              'assets/ishtar_gate.jfif',
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
+          ),
+        ),
+        Align(
+          alignment: Alignment.topCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Opacity(
+              opacity: 0.20,
+              child: SizedBox(
+                height: screenHeight * mapHeightFraction,
+                child: Image.asset(
+                  'assets/iraq_map.png',
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(child: child),
+      ],
+    );
+  }
 }
 
-class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
-  final TextEditingController _phoneCtrl = TextEditingController();
-  String? _errorText;
-  bool _submitting = false;
+class PhoneAuthScreen extends StatefulWidget {
+  const PhoneAuthScreen({super.key});
 
-  String? _normalizeIraqiPhone(String raw) {
-    final digits = raw.replaceAll(RegExp(r'\D'), '');
-    if (digits.startsWith('964') && digits.length == 13) {
-      return '+$digits';
-    }
-    if (digits.startsWith('07') && digits.length == 11) {
-      return '+964${digits.substring(1)}';
-    }
-    if (digits.startsWith('7') && digits.length == 10) {
-      return '+964$digits';
-    }
-    return null;
+  @override
+  State<PhoneAuthScreen> createState() => _PhoneAuthScreenState();
+}
+
+class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
+  final SupabaseClient _supabase = Supabase.instance.client;
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _otpController = TextEditingController();
+
+  bool _otpSent = false;
+  bool _submitting = false;
+  String? _normalizedPhone;
+  String? _errorMessage;
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    _otpController.dispose();
+    super.dispose();
   }
 
   Future<void> _sendOtp() async {
-    final normalized = _normalizeIraqiPhone(_phoneCtrl.text);
+    final normalized = normalizeIraqiPhone(_phoneController.text);
     if (normalized == null) {
       setState(() {
-        _errorText = 'أدخل رقماً عراقياً صحيحاً بصيغة 07xxxxxxxxx';
+        _errorMessage =
+            'أدخل رقماً عراقياً صحيحاً يبدأ بـ 07 أو 7 (مثال: 07740140555)';
       });
       return;
     }
 
     setState(() {
-      _errorText = null;
       _submitting = true;
+      _errorMessage = null;
     });
 
     try {
       await _supabase.auth.signInWithOtp(phone: normalized);
-      if (!mounted) return;
-      setState(() => _submitting = false);
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => OtpVerificationScreen(
-            phoneNumber: normalized,
-            watermarkOpacity: widget.watermarkOpacity,
-            onAuthSuccess: widget.onAuthSuccess,
-          ),
-        ),
-      );
+      if (mounted) {
+        setState(() {
+          _normalizedPhone = normalized;
+          _otpSent = true;
+          _submitting = false;
+        });
+      }
     } on AuthException catch (e) {
-      if (!mounted) return;
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _errorMessage = 'تعذر إرسال رمز التحقق: ${e.message}';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _errorMessage =
+              'تعذر إرسال رمز التحقق ($e). تأكد من تفعيل Phone/SMS Provider في Supabase Auth ومن اتصال الشبكة.';
+        });
+      }
+    }
+  }
+
+  Future<void> _verifyOtp() async {
+    final code = _otpController.text.trim();
+    final phone = _normalizedPhone ?? normalizeIraqiPhone(_phoneController.text);
+    if (phone == null || code.length < 4) {
       setState(() {
-        _submitting = false;
-        _errorText = 'تعذر إرسال رمز التحقق: ${e.message}';
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _submitting = false;
-        _errorText = 'حدث خطأ في الاتصال، حاول مرة أخرى';
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _phoneCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    const primaryBlue = Color(0xFF1B3A8F);
-    const softBg = Color(0xFFF7F5EF);
-
-    return Scaffold(
-      backgroundColor: softBg,
-      body: Stack(
-        children: [
-          IshtarWatermark(opacity: widget.watermarkOpacity),
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 12),
-                  Center(
-                    child: SizedBox(
-                      width: MediaQuery.of(context).size.width * 0.20,
-                      child: Image.asset(
-                        'assets/iraq_map.png',
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'شلونكم چات - IQ',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.bold,
-                      color: primaryBlue,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'تطبيق تواصل عراقي لكل العراق',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 15, color: Colors.black54),
-                  ),
-                  const SizedBox(height: 32),
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Colors.black12,
-                          blurRadius: 10,
-                          offset: Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const Text(
-                          'تأكيد رقم الهاتف',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: primaryBlue,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        TextField(
-                          controller: _phoneCtrl,
-                          keyboardType: TextInputType.phone,
-                          textDirection: TextDirection.ltr,
-                          decoration: InputDecoration(
-                            labelText: 'رقم الهاتف العراقي',
-                            hintText: '0770 000 0000',
-                            prefixText: '+964 ',
-                            errorText: _errorText,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            filled: true,
-                            fillColor: softBg,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          height: 50,
-                          child: ElevatedButton(
-                            onPressed: _submitting ? null : _sendOtp,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: primaryBlue,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: _submitting
-                                ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text(
-                                    'متابعة',
-                                    style: TextStyle(
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  const EngravedCreatorWatermark(),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 2. شاشة إدخال رمز التحقق (OTP)
-class OtpVerificationScreen extends StatefulWidget {
-  final String phoneNumber;
-  final double watermarkOpacity;
-  final VoidCallback onAuthSuccess;
-
-  const OtpVerificationScreen({
-    super.key,
-    required this.phoneNumber,
-    this.watermarkOpacity = 0.08,
-    required this.onAuthSuccess,
-  });
-
-  @override
-  State<OtpVerificationScreen> createState() => _OtpVerificationScreenState();
-}
-
-class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
-  final List<TextEditingController> _controllers =
-      List.generate(6, (_) => TextEditingController());
-  final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
-
-  Timer? _timer;
-  int _secondsLeft = 119;
-  String? _errorText;
-  bool _verifying = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _startTimer();
-  }
-
-  void _startTimer() {
-    _timer?.cancel();
-    setState(() => _secondsLeft = 119);
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      if (_secondsLeft <= 1) {
-        timer.cancel();
-        setState(() => _secondsLeft = 0);
-      } else {
-        setState(() => _secondsLeft--);
-      }
-    });
-  }
-
-  Future<void> _resendCode() async {
-    try {
-      await _supabase.auth.signInWithOtp(phone: widget.phoneNumber);
-      if (!mounted) return;
-      _startTimer();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تمت إعادة إرسال رمز التحقق')),
-      );
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _errorText = 'تعذر إعادة إرسال الرمز حالياً');
-    }
-  }
-
-  String get _formattedTimer {
-    final mins = (_secondsLeft ~/ 60).toString().padLeft(2, '0');
-    final secs = (_secondsLeft % 60).toString().padLeft(2, '0');
-    return '$mins:$secs';
-  }
-
-  String get _codeValue =>
-      _controllers.map((c) => c.text.trim()).join();
-
-  void _onDigitChanged(int index, String value) {
-    final digitsOnly = value.replaceAll(RegExp(r'\D'), '');
-    if (digitsOnly.isEmpty) {
-      if (_controllers[index].text.isNotEmpty) {
-        _controllers[index].clear();
-      }
-      if (index > 0) {
-        _focusNodes[index - 1].requestFocus();
-      }
-      setState(() => _errorText = null);
-      return;
-    }
-
-    final char = digitsOnly.characters.last;
-    _controllers[index].value = TextEditingValue(
-      text: char,
-      selection: TextSelection.collapsed(offset: char.length),
-    );
-    setState(() => _errorText = null);
-
-    if (index < 5) {
-      _focusNodes[index + 1].requestFocus();
-    } else {
-      _focusNodes[index].unfocus();
-    }
-  }
-
-  Future<void> _verifyCode() async {
-    final code = _codeValue;
-    if (code.length < 6) {
-      setState(() {
-        _errorText = 'أدخل رمز التحقق المكون من 6 أرقام';
+        _errorMessage = 'أدخل رمز التحقق الذي وصلك بشكل صحيح';
       });
       return;
     }
 
     setState(() {
-      _errorText = null;
-      _verifying = true;
+      _submitting = true;
+      _errorMessage = null;
     });
 
     try {
       final response = await _supabase.auth.verifyOTP(
-        phone: widget.phoneNumber,
-        token: code,
         type: OtpType.sms,
+        phone: phone,
+        token: code,
       );
 
       final user = response.user;
       if (user == null) {
-        throw const AuthException('لم يتم إنشاء جلسة مستخدم');
+        throw const AuthException('لم يتم تأكيد الجلسة');
       }
 
       final existingProfile = await _supabase
           .from('profiles')
-          .select('display_name, username')
+          .select('username')
           .eq('id', user.id)
           .maybeSingle();
 
+      final username = (existingProfile?['username'] as String?)?.trim() ?? '';
       if (!mounted) return;
-      setState(() => _verifying = false);
 
-      final hasCompleteProfile = existingProfile != null &&
-          (existingProfile['username']?.toString().trim().isNotEmpty ?? false) &&
-          (existingProfile['display_name']?.toString().trim().isNotEmpty ??
-              false);
-
-      if (hasCompleteProfile) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-        widget.onAuthSuccess();
+      if (username.isEmpty) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const ProfileSetupScreen()),
+        );
       } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ProfileSetupScreen(
-              watermarkOpacity: widget.watermarkOpacity,
-              isEditing: false,
-              onSaved: () {
-                Navigator.of(context).popUntil((route) => route.isFirst);
-                widget.onAuthSuccess();
-              },
-            ),
-          ),
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeShellScreen()),
         );
       }
     } on AuthException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _verifying = false;
-        _errorText = 'رمز التحقق غير صحيح أو منتهي الصلاحية (${e.message})';
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _verifying = false;
-        _errorText = 'حدث خطأ أثناء التحقق من الرمز';
-      });
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _errorMessage = 'رمز التحقق غير صحيح أو منتهي: ${e.message}';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _errorMessage = 'فشل التحقق من الرمز: $e';
+        });
+      }
     }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    for (final c in _controllers) {
-      c.dispose();
-    }
-    for (final f in _focusNodes) {
-      f.dispose();
-    }
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    const primaryBlue = Color(0xFF1B3A8F);
-    const softBg = Color(0xFFF7F5EF);
-
     return Scaffold(
-      backgroundColor: softBg,
       appBar: AppBar(
-        title: const Text('رمز التحقق'),
-        backgroundColor: primaryBlue,
-        foregroundColor: Colors.white,
-        elevation: 0,
+        title: const Text('شلونكم IQ'),
+        centerTitle: true,
       ),
-      body: Stack(
-        children: [
-          IshtarWatermark(opacity: widget.watermarkOpacity),
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: SizedBox(
-                      width: MediaQuery.of(context).size.width * 0.20,
-                      child: Image.asset(
-                        'assets/iraq_map.png',
-                        fit: BoxFit.contain,
+      body: IraqIdentityBackground(
+        mapHeightFraction: 0.30,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.24,
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'أدخل رمز التحقق',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: primaryBlue,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'تم إرسال الرمز إلى ${widget.phoneNumber}',
-                    textAlign: TextAlign.center,
-                    textDirection: TextDirection.ltr,
-                    style: const TextStyle(fontSize: 14, color: Colors.black54),
-                  ),
-                  const SizedBox(height: 28),
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Colors.black12,
-                          blurRadius: 10,
-                          offset: Offset(0, 4),
+                      const Text(
+                        'شلونكم چات - IQ',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
                         ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Directionality(
-                          textDirection: TextDirection.ltr,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: List.generate(6, (index) {
-                              return SizedBox(
-                                width: 44,
-                                height: 52,
-                                child: TextField(
-                                  controller: _controllers[index],
-                                  focusNode: _focusNodes[index],
-                                  textAlign: TextAlign.center,
-                                  keyboardType: TextInputType.number,
-                                  maxLength: 1,
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: primaryBlue,
-                                  ),
-                                  decoration: InputDecoration(
-                                    counterText: '',
-                                    contentPadding: EdgeInsets.zero,
-                                    filled: true,
-                                    fillColor: softBg,
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  onChanged: (val) =>
-                                      _onDigitChanged(index, val),
-                                ),
-                              );
-                            }),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'تطبيق تواصل عراقي لكل العراق',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      const SizedBox(height: 20),
+                      TextField(
+                        controller: _phoneController,
+                        enabled: !_otpSent && !_submitting,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'رقم الهاتف العراقي',
+                          hintText: '07740140555',
+                          prefixText: '+964  ',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      if (_otpSent) ...[
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _otpController,
+                          enabled: !_submitting,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'رمز التحقق (OTP)',
+                            border: OutlineInputBorder(),
                           ),
                         ),
-                        if (_errorText != null) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            _errorText!,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.redAccent,
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton(
+                            onPressed: _submitting
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _otpSent = false;
+                                      _otpController.clear();
+                                      _errorMessage = null;
+                                    });
+                                  },
+                            child: const Text('تغيير الرقم أو إعادة الإرسال'),
+                          ),
+                        ),
+                      ],
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.red.shade300),
+                          ),
+                          child: Text(
+                            _errorMessage!,
+                            style: TextStyle(
+                              color: Colors.red.shade800,
                               fontSize: 13,
                             ),
                           ),
-                        ],
-                        const SizedBox(height: 18),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              _formattedTimer,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black54,
-                              ),
-                            ),
-                            TextButton(
-                              onPressed:
-                                  _secondsLeft == 0 ? _resendCode : null,
-                              child: const Text('إعادة إرسال الرمز'),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          height: 50,
-                          child: ElevatedButton(
-                            onPressed: _verifying ? null : _verifyCode,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: primaryBlue,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: _verifying
-                                ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text(
-                                    'تأكيد الرمز',
-                                    style: TextStyle(
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                          ),
                         ),
                       ],
-                    ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        height: 48,
+                        child: ElevatedButton(
+                          onPressed: _submitting
+                              ? null
+                              : (_otpSent ? _verifyOtp : _sendOtp),
+                          child: _submitting
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                  ),
+                                )
+                              : Text(
+                                  _otpSent ? 'تأكيد رمز التحقق' : 'متابعة',
+                                  style: const TextStyle(fontSize: 16),
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
+              const CreatorWatermark(),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-/// 3. شاشة إنشاء وتعديل الملف الشخصي (عام لكل العراق بدون محافظات)
 class ProfileSetupScreen extends StatefulWidget {
-  final double watermarkOpacity;
-  final bool isEditing;
-  final VoidCallback onSaved;
-
-  const ProfileSetupScreen({
-    super.key,
-    this.watermarkOpacity = 0.08,
-    this.isEditing = false,
-    required this.onSaved,
-  });
+  const ProfileSetupScreen({super.key});
 
   @override
   State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
 }
 
 class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
-  final TextEditingController _nameCtrl = TextEditingController();
-  final TextEditingController _usernameCtrl = TextEditingController();
-  final TextEditingController _bioCtrl = TextEditingController();
+  final SupabaseClient _supabase = Supabase.instance.client;
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _bioController = TextEditingController();
 
-  bool _loading = true;
   bool _saving = false;
-  String? _errorText;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _loadCurrentProfile();
+    _loadExistingProfile();
   }
 
-  Future<void> _loadCurrentProfile() async {
+  Future<void> _loadExistingProfile() async {
     final user = _supabase.auth.currentUser;
-    if (user == null) {
-      setState(() => _loading = false);
-      return;
-    }
-
+    if (user == null) return;
     try {
-      final data = await _supabase
+      final row = await _supabase
           .from('profiles')
           .select('display_name, username, bio')
           .eq('id', user.id)
           .maybeSingle();
-
-      if (data != null) {
-        final name = data['display_name']?.toString() ?? '';
-        if (name != 'مستخدم شلونكم') {
-          _nameCtrl.text = name;
-        }
-        _usernameCtrl.text = data['username']?.toString() ?? '';
-        _bioCtrl.text = data['bio']?.toString() ?? '';
+      if (row != null && mounted) {
+        _nameController.text = (row['display_name'] as String?) ?? '';
+        _usernameController.text = (row['username'] as String?) ?? '';
+        _bioController.text = (row['bio'] as String?) ?? '';
       }
     } catch (_) {}
+  }
 
-    if (mounted) {
-      setState(() => _loading = false);
-    }
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _usernameController.dispose();
+    _bioController.dispose();
+    super.dispose();
   }
 
   Future<void> _saveProfile() async {
-    final displayName = _nameCtrl.text.trim();
-    final rawUsername = _usernameCtrl.text.trim().toLowerCase();
-    final bio = _bioCtrl.text.trim();
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
 
-    if (displayName.length < 2) {
-      setState(() => _errorText = 'أدخل الاسم الكامل (حرفين على الأقل)');
+    final displayName = _nameController.text.trim();
+    final username = _usernameController.text.trim().toLowerCase();
+    final bio = _bioController.text.trim().isEmpty
+        ? 'أهلاً بكم في شلونكم چات - IQ'
+        : _bioController.text.trim();
+
+    if (displayName.isEmpty) {
+      setState(() => _errorMessage = 'اكتب الاسم الظاهر');
       return;
     }
 
-    final validUsername = RegExp(r'^[a-z0-9_]{3,20}$').hasMatch(rawUsername);
-    if (!validUsername) {
+    if (!RegExp(r'^[a-z0-9_]{3,20}$').hasMatch(username)) {
       setState(() {
-        _errorText =
-            'اسم المستخدم يجب أن يكون بالإنجليزية (3-20 حرفاً أو أرقام أو _)';
+        _errorMessage =
+            'اسم المستخدم يجب أن يكون من 3 إلى 20 حرفاً إنجليزياً صغيراً أو أرقاماً أو _';
       });
       return;
     }
 
-    final user = _supabase.auth.currentUser;
-    if (user == null) return;
-
     setState(() {
-      _errorText = null;
       _saving = true;
+      _errorMessage = null;
     });
 
     try {
@@ -731,186 +427,105 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         'id': user.id,
         'phone': user.phone,
         'display_name': displayName,
-        'username': rawUsername,
-        'bio': bio.isEmpty ? 'أهلاً بكم في شلونكم چات - IQ' : bio,
+        'username': username,
+        'bio': bio,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
 
       if (!mounted) return;
-      setState(() => _saving = false);
-      widget.onSaved();
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const HomeShellScreen()),
+      );
     } on PostgrestException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _errorText = e.code == '23505'
-            ? 'اسم المستخدم محجوز مسبقاً، اختر اسماً آخر'
-            : 'تعذر حفظ الملف الشخصي: ${e.message}';
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _errorText = 'حدث خطأ أثناء حفظ البيانات';
-      });
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _errorMessage = e.code == '23505'
+              ? 'اسم المستخدم مستخدم مسبقاً، اختر اسماً آخر'
+              : 'تعذر حفظ الملف الشخصي: ${e.message}';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _errorMessage = 'حدث خطأ أثناء الحفظ: $e';
+        });
+      }
     }
   }
 
   @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _usernameCtrl.dispose();
-    _bioCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    const primaryBlue = Color(0xFF1B3A8F);
-    const softBg = Color(0xFFF7F5EF);
-
     return Scaffold(
-      backgroundColor: softBg,
       appBar: AppBar(
-        title: Text(
-          widget.isEditing ? 'تعديل الملف الشخصي' : 'إنشاء الملف الشخصي',
-        ),
-        backgroundColor: primaryBlue,
-        foregroundColor: Colors.white,
-        elevation: 0,
+        title: const Text('إنشاء الملف الشخصي'),
+        centerTitle: true,
       ),
-      body: Stack(
-        children: [
-          IshtarWatermark(opacity: widget.watermarkOpacity),
-          SafeArea(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 24,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Center(
-                          child: SizedBox(
-                            width: MediaQuery.of(context).size.width * 0.20,
-                            child: Image.asset(
-                              'assets/iraq_map.png',
-                              fit: BoxFit.contain,
-                            ),
-                          ),
+      body: IraqIdentityBackground(
+        mapHeightFraction: 0.25,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: _nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'الاسم الكامل',
+                          border: OutlineInputBorder(),
                         ),
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(18),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Colors.black12,
-                                blurRadius: 10,
-                                offset: Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              TextField(
-                                controller: _nameCtrl,
-                                decoration: InputDecoration(
-                                  labelText: 'الاسم الكامل',
-                                  hintText: 'اكتب اسمك الظاهر للجميع',
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  filled: true,
-                                  fillColor: softBg,
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              TextField(
-                                controller: _usernameCtrl,
-                                textDirection: TextDirection.ltr,
-                                decoration: InputDecoration(
-                                  labelText: 'اسم المستخدم (Username)',
-                                  hintText: 'atheer_iq',
-                                  prefixText: '@',
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  filled: true,
-                                  fillColor: softBg,
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              TextField(
-                                controller: _bioCtrl,
-                                maxLines: 2,
-                                decoration: InputDecoration(
-                                  labelText: 'النبذة التعريفية',
-                                  hintText: 'أهلاً بكم في شلونكم چات - IQ',
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  filled: true,
-                                  fillColor: softBg,
-                                ),
-                              ),
-                              if (_errorText != null) ...[
-                                const SizedBox(height: 12),
-                                Text(
-                                  _errorText!,
-                                  style: const TextStyle(
-                                    color: Colors.redAccent,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 20),
-                              SizedBox(
-                                height: 50,
-                                child: ElevatedButton(
-                                  onPressed: _saving ? null : _saveProfile,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: primaryBlue,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  child: _saving
-                                      ? const SizedBox(
-                                          width: 22,
-                                          height: 22,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : Text(
-                                          widget.isEditing
-                                              ? 'حفظ التعديلات'
-                                              : 'حفظ والدخول للتطبيق',
-                                          style: const TextStyle(
-                                            fontSize: 17,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                ),
-                              ),
-                            ],
-                          ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _usernameController,
+                        decoration: const InputDecoration(
+                          labelText: 'اسم المستخدم (username)',
+                          hintText: 'atheer_iq',
+                          border: OutlineInputBorder(),
                         ),
-                        const SizedBox(height: 28),
-                        const EngravedCreatorWatermark(),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _bioController,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'النبذة الشخصية',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          _errorMessage!,
+                          style: TextStyle(color: Colors.red.shade800),
+                        ),
                       ],
-                    ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        height: 48,
+                        child: ElevatedButton(
+                          onPressed: _saving ? null : _saveProfile,
+                          child: _saving
+                              ? const CircularProgressIndicator()
+                              : const Text(
+                                  'حفظ والدخول للتطبيق',
+                                  style: TextStyle(fontSize: 16),
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+              ),
+              const CreatorWatermark(),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
