@@ -13,10 +13,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Backup root Dart files
+      - name: Backup project files
         run: |
-          mkdir -p /tmp/dart_backup
-          cp -f *.dart /tmp/dart_backup/ 2>/dev/null || true
+          mkdir -p /tmp/project_backup
+          cp -f *.dart /tmp/project_backup/ 2>/dev/null || true
+          cp -f pubspec.yaml /tmp/project_backup/ 2>/dev/null || true
+          cp -f pubspec.lock /tmp/project_backup/ 2>/dev/null || true
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -38,11 +40,19 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Create clean Android Flutter project and restore Dart files
+      - name: Create Android Flutter project and restore files
         run: |
           flutter create --overwrite --platforms=android --project-name shlonkum_chat_iq .
+          cp -f /tmp/project_backup/pubspec.yaml ./pubspec.yaml 2>/dev/null || true
+          cp -f /tmp/project_backup/pubspec.lock ./pubspec.lock 2>/dev/null || true
           mkdir -p lib
-          cp -f /tmp/dart_backup/*.dart lib/ 2>/dev/null || true
+          cp -f /tmp/project_backup/*.dart lib/ 2>/dev/null || true
+
+      - name: Ensure supabase_flutter exists in pubspec.yaml
+        run: |
+          if ! grep -q "supabase_flutter:" pubspec.yaml; then
+            flutter pub add supabase_flutter
+          fi
 
       - name: Update Gradle wrapper to compatible version
         run: |
