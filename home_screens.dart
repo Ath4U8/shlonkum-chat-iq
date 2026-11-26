@@ -209,7 +209,7 @@ class _ChatsTabState extends State<ChatsTab> {
                                 chat['display_name']?.toString() ?? 'مستخدم';
                             final msg = chat['last_message']?.toString() ?? '';
                             return ListTile(
-                              tileColor: Colors.white.withOpacity(0.92),
+                              tileColor: Colors.white.withValues(alpha: 0.92),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -529,7 +529,7 @@ class _FriendsTabState extends State<FriendsTab> {
                                   u['display_name']?.toString() ?? 'مستخدم';
                               final uname = u['username']?.toString() ?? '';
                               return Card(
-                                color: Colors.white.withOpacity(0.95),
+                                color: Colors.white.withValues(alpha: 0.95),
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: ListTile(
                                   leading: CircleAvatar(
@@ -608,7 +608,7 @@ class CallsTab extends StatelessWidget {
   }
 }
 
-/// 4. تبويب حسابي وتعديل الملف الشخصي (مع العلامة المائية المحفورة في شاشة التعديل فقط)
+/// 4. تبويب حسابي وتعديل الملف الشخصي
 class ProfileTab extends StatefulWidget {
   final double watermarkOpacity;
   final VoidCallback onSignedOut;
