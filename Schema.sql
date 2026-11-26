@@ -1,7 +1,6 @@
--- مخطط قاعدة البيانات الموحد لتطبيق شلونكم چات - IQ (عام لكل العراق بدون محافظات)
 create extension if not exists "pgcrypto";
+create extension if not exists "pg_net";
 
--- 1. جدول الملفات الشخصية للمستخدمين
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   phone text,
@@ -21,7 +20,6 @@ add column if not exists bio text default 'أهلاً بكم في شلونكم �
 alter table public.profiles
 add column if not exists updated_at timestamptz not null default now();
 
--- دالة إنشاء البروفايل تلقائياً عند تسجيل مستخدم جديد
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -46,7 +44,6 @@ create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function public.handle_new_user();
 
--- تفعيل RLS وسياسات جدول profiles
 alter table public.profiles enable row level security;
 
 drop policy if exists "read profiles" on public.profiles;
@@ -65,7 +62,6 @@ on public.profiles for update
 using (auth.uid() = id)
 with check (auth.uid() = id);
 
--- 2. جدول الرسائل المباشرة ومعالجة أي أعمدة قديمة
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),
   sender_id uuid references auth.users(id) on delete cascade,
@@ -86,7 +82,6 @@ add column if not exists content text;
 alter table public.messages
 add column if not exists created_at timestamptz not null default now();
 
--- إذا كان عمود recipient_id موجوداً من مخطط سابق، انقل قيمه إلى receiver_id
 do $$
 begin
   if exists (
@@ -106,7 +101,6 @@ on public.messages (sender_id, receiver_id, created_at desc);
 create index if not exists idx_messages_receiver_sender_time
 on public.messages (receiver_id, sender_id, created_at desc);
 
--- تفعيل RLS وسياسات جدول messages
 alter table public.messages enable row level security;
 
 drop policy if exists "read own messages" on public.messages;
@@ -119,7 +113,41 @@ create policy "send own messages"
 on public.messages for insert
 with check (auth.uid() = sender_id);
 
--- تفعيل Realtime على جدول messages
+create or replace function public.notify_cloudflare_on_message()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  sender_display text;
+begin
+  select coalesce(display_name, 'مستخدم شلونكم')
+  into sender_display
+  from public.profiles
+  where id = new.sender_id;
+
+  perform net.http_post(
+    url := 'https://shlonkum-chat-iq-notify.a00072288.workers.dev',
+    headers := '{"Content-Type": "application/json"}'::jsonb,
+    body := jsonb_build_object(
+      'event', 'new_message',
+      'recipient_id', new.receiver_id,
+      'sender_id', new.sender_id,
+      'sender_name', coalesce(sender_display, 'مستخدم شلونكم'),
+      'body', new.content
+    )
+  );
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_message_inserted_notify on public.messages;
+create trigger on_message_inserted_notify
+after insert on public.messages
+for each row execute function public.notify_cloudflare_on_message();
+
 do $$
 begin
   if not exists (
