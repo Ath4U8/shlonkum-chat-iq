@@ -56,32 +56,15 @@ jobs:
             flutter pub add supabase_flutter
           fi
 
-      - name: Configure Gradle 8.5 and SDK properties at top of build.gradle
+      - name: Fix Gradle wrapper and Android SDK versions
         run: |
           sed -i 's/gradle-[0-9.]*-all.zip/gradle-8.5-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
-          python3 - << 'EOF'
-          path = "android/build.gradle"
-          with open(path, "r", encoding="utf-8") as f:
-              content = f.read()
-
-          header = """ext {
-    compileSdkVersion = 34
-    targetSdkVersion = 34
-    minSdkVersion = 21
-    ndkVersion = "25.1.8937393"
-    flutter = [
-        compileSdkVersion: 34,
-        targetSdkVersion: 34,
-        minSdkVersion: 21,
-        ndkVersion: "25.1.8937393"
-    ]
-}
-
-"""
-          if "compileSdkVersion = 34" not in content:
-              with open(path, "w", encoding="utf-8") as f:
-                  f.write(header + content)
-          EOF
+          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' android/app/build.gradle || true
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle || true
+          sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle || true
+          sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle || true
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
+          sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' android/app/build.gradle || true
 
       - name: Install Flutter dependencies
         run: flutter pub get
