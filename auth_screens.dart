@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dev_auth_bypass.dart';
-import 'home_screens.dart';
+import 'home_screens.dart' as home;
 
 class PhoneAuthScreen extends StatefulWidget {
   const PhoneAuthScreen({super.key});
@@ -16,6 +16,14 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
   bool isLoading = false;
   bool otpSent = false;
   String? errorMessage;
+
+  Widget _resolveNextScreen() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      return const home.HomeScreens();
+    }
+    return const home.HomeScreens();
+  }
 
   String _normalizeIraqPhone(String raw) {
     final cleaned = raw.trim().replaceAll(RegExp(r'[\s\-]'), '');
@@ -67,7 +75,7 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
       );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        MaterialPageRoute(builder: (_) => _resolveNextScreen()),
       );
     } catch (e) {
       if (!mounted) return;
@@ -136,7 +144,7 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
             ),
             DevBypassButton(
               phoneController: phoneController,
-              nextScreen: const HomeScreen(),
+              nextScreen: _resolveNextScreen(),
             ),
           ],
         ),
