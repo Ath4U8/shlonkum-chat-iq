@@ -27,13 +27,26 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Sync root Dart files into lib
+      - name: Scaffold supported Android project and sync files
         shell: bash
         run: |
+          mkdir -p /tmp/shlonkum_backup
+          [ -f main.dart ] && cp -f main.dart /tmp/shlonkum_backup/main.dart
+          [ -f auth_screens.dart ] && cp -f auth_screens.dart /tmp/shlonkum_backup/auth_screens.dart
+          [ -f home_screens.dart ] && cp -f home_screens.dart /tmp/shlonkum_backup/home_screens.dart
+          [ -f pubspec.yaml ] && cp -f pubspec.yaml /tmp/shlonkum_backup/pubspec.yaml
+          [ -d assets ] && cp -rf assets /tmp/shlonkum_backup/assets
+
+          rm -rf android
+          flutter create --platforms=android --org com.atheersami.shlonkumchat --project-name shlonkum_chat_iq .
+
+          [ -f /tmp/shlonkum_backup/pubspec.yaml ] && cp -f /tmp/shlonkum_backup/pubspec.yaml pubspec.yaml
+          [ -d /tmp/shlonkum_backup/assets ] && mkdir -p assets && cp -rf /tmp/shlonkum_backup/assets/* assets/
+
           mkdir -p lib
-          [ -f main.dart ] && cp -f main.dart lib/main.dart
-          [ -f auth_screens.dart ] && cp -f auth_screens.dart lib/auth_screens.dart
-          [ -f home_screens.dart ] && cp -f home_screens.dart lib/home_screens.dart
+          [ -f /tmp/shlonkum_backup/main.dart ] && cp -f /tmp/shlonkum_backup/main.dart lib/main.dart
+          [ -f /tmp/shlonkum_backup/auth_screens.dart ] && cp -f /tmp/shlonkum_backup/auth_screens.dart lib/auth_screens.dart
+          [ -f /tmp/shlonkum_backup/home_screens.dart ] && cp -f /tmp/shlonkum_backup/home_screens.dart lib/home_screens.dart
           ls -la lib
 
       - name: Install dependencies
