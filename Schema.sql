@@ -1,91 +1,108 @@
-
--- Shlonkum Chat - IQ - Supabase Schema - Phase 1
--- Enable extensions
+-- مخطط قاعدة البيانات الموحد لتطبيق شلونكم چات - IQ (عام لكل العراق بدون محافظات)
 create extension if not exists "pgcrypto";
 
--- 1. Profiles - المستخدمين
-create table public.profiles (
+-- 1. جدول الملفات الشخصية للمستخدمين
+create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
-  phone text unique not null,
-  display_name text not null,
-  avatar_url text,
-  governorate text, -- البصرة، بغداد، أربيل... 18 محافظة
-  is_verified boolean default false,
-  created_at timestamptz default now()
+  phone text,
+  display_name text not null default 'مستخدم شلونكم',
+  username text unique,
+  bio text default 'أهلاً بكم في شلونكم چات - IQ',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
--- 2. Chats - المحادثات الفردية والجماعية
-create table public.chats (
-  id uuid primary key default gen_random_uuid(),
-  type text check (type in ('direct','group')) not null,
-  title text,
-  avatar_url text,
-  created_by uuid references public.profiles(id),
-  created_at timestamptz default now()
-);
+alter table public.profiles
+add column if not exists username text unique;
 
--- 3. Chat members
-create table public.chat_members (
-  chat_id uuid references public.chats(id) on delete cascade,
-  user_id uuid references public.profiles(id) on delete cascade,
-  role text default 'member',
-  joined_at timestamptz default now(),
-  primary key (chat_id, user_id)
-);
+alter table public.profiles
+add column if not exists bio text default 'أهلاً بكم في شلونكم چات - IQ';
 
--- 4. Messages - الرسائل
-create table public.messages (
-  id uuid primary key default gen_random_uuid(),
-  chat_id uuid references public.chats(id) on delete cascade,
-  sender_id uuid references public.profiles(id),
-  content text,
-  media_url text, -- صورة / فيديو بجودة كاملة من Supabase Storage / Cloudflare R2
-  media_type text check (media_type in ('text','image','video','voice','file')),
-  created_at timestamptz default now()
-);
+alter table public.profiles
+add column if not exists updated_at timestamptz not null default now();
 
--- 5. Official Channels - القنوات الرسمية العراقية - الميزة الذهبية
-create table public.official_channels (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  slug text unique not null,
-  governorate text not null, -- 18 محافظة
-  category text check (category in ('education','government','health','emergency','municipality','other')) not null,
-  description text,
-  avatar_url text,
-  is_verified boolean default true, -- علامة صح زرقاء
-  owner_name text, -- اسم الجهة الرسمية
-  owner_document_url text, -- الكتاب الرسمي
-  admin_id uuid references public.profiles(id),
-  subscribers_count int default 0,
-  created_at timestamptz default now()
-);
+-- دالة إنشاء البروفايل تلقائياً عند تسجيل مستخدم جديد
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, phone, display_name, username)
+  values (
+    new.id,
+    new.phone,
+    coalesce(new.raw_user_meta_data->>'display_name', 'مستخدم شلونكم'),
+    nullif(lower(trim(new.raw_user_meta_data->>'username')), '')
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
 
--- 6. Channel Posts - منشورات القنوات الرسمية
-create table public.channel_posts (
-  id uuid primary key default gen_random_uuid(),
-  channel_id uuid references public.official_channels(id) on delete cascade,
-  author_id uuid references public.profiles(id),
-  content text not null,
-  media_url text,
-  is_official boolean default true,
-  created_at timestamptz default now()
-);
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+after insert on auth.users
+for each row execute function public.handle_new_user();
 
--- 7. Channel Subscribers
-create table public.channel_subscribers (
-  channel_id uuid references public.official_channels(id) on delete cascade,
-  user_id uuid references public.profiles(id) on delete cascade,
-  subscribed_at timestamptz default now(),
-  primary key (channel_id, user_id)
-);
-
--- Storage buckets (create in Supabase Dashboard):
--- avatars, chat-media, channel-media, official-documents
-
--- RLS: تفعيل الحماية - كل واحد يشوف بس رسائله
+-- تفعيل RLS وسياسات جدول profiles
 alter table public.profiles enable row level security;
-alter table public.chats enable row level security;
+
+drop policy if exists "read profiles" on public.profiles;
+create policy "read profiles"
+on public.profiles for select
+using (true);
+
+drop policy if exists "insert own profile" on public.profiles;
+create policy "insert own profile"
+on public.profiles for insert
+with check (auth.uid() = id);
+
+drop policy if exists "update own profile" on public.profiles;
+create policy "update own profile"
+on public.profiles for update
+using (auth.uid() = id)
+with check (auth.uid() = id);
+
+-- 2. جدول الرسائل المباشرة
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  sender_id uuid not null references auth.users(id) on delete cascade,
+  receiver_id uuid not null references auth.users(id) on delete cascade,
+  content text not null check (char_length(trim(content)) > 0),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_messages_sender_receiver_time
+on public.messages (sender_id, receiver_id, created_at desc);
+
+create index if not exists idx_messages_receiver_sender_time
+on public.messages (receiver_id, sender_id, created_at desc);
+
+-- تفعيل RLS وسياسات جدول messages
 alter table public.messages enable row level security;
-alter table public.official_channels enable row level security;
-alter table public.channel_posts enable row level security;
+
+drop policy if exists "read own messages" on public.messages;
+create policy "read own messages"
+on public.messages for select
+using (auth.uid() = sender_id or auth.uid() = receiver_id);
+
+drop policy if exists "send own messages" on public.messages;
+create policy "send own messages"
+on public.messages for insert
+with check (auth.uid() = sender_id);
+
+-- تفعيل Realtime على جدول messages
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'messages'
+  ) then
+    alter publication supabase_realtime add table public.messages;
+  end if;
+end $$;
