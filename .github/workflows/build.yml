@@ -1,104 +1,46 @@
-name: Build Shlonkum Chat IQ APK
+name: Build Flutter App
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          distribution: temurin
-          java-version: '17'
+          python-version: '3.11'
+
+      - name: Install Pillow (PIL)
+        run: python -m pip install --upgrade pip && pip install pillow
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.0'
+          flutter-version: '3.24.0'
           channel: 'stable'
-          cache: true
 
-      - name: Scaffold Android project and sync root files into lib & assets
-        shell: bash
+      - name: Prepare Flutter project without overwriting root files
         run: |
-          mkdir -p /tmp/shlonkum_backup
-          [ -f main.dart ] && cp -f main.dart /tmp/shlonkum_backup/main.dart
-          [ -f auth_screens.dart ] && cp -f auth_screens.dart /tmp/shlonkum_backup/auth_screens.dart
-          [ -f home_screens.dart ] && cp -f home_screens.dart /tmp/shlonkum_backup/home_screens.dart
-          [ -f pubspec.yaml ] && cp -f pubspec.yaml /tmp/shlonkum_backup/pubspec.yaml
-          [ -f iraq_map.png ] && cp -f iraq_map.png /tmp/shlonkum_backup/iraq_map.png
-          [ -f ishtar_gate.jfif ] && cp -f ishtar_gate.jfif /tmp/shlonkum_backup/ishtar_gate.jfif
-          [ -f icon.png ] && cp -f icon.png /tmp/shlonkum_backup/icon.png
-
-          rm -rf android
-          flutter create --platforms=android --org com.atheersami.shlonkumchat --project-name shlonkum_chat_iq .
-
-          [ -f /tmp/shlonkum_backup/pubspec.yaml ] && cp -f /tmp/shlonkum_backup/pubspec.yaml pubspec.yaml
-
-          mkdir -p assets
-          [ -f /tmp/shlonkum_backup/iraq_map.png ] && cp -f /tmp/shlonkum_backup/iraq_map.png assets/iraq_map.png
-          [ -f /tmp/shlonkum_backup/ishtar_gate.jfif ] && cp -f /tmp/shlonkum_backup/ishtar_gate.jfif assets/ishtar_gate.jfif
-          [ -f /tmp/shlonkum_backup/icon.png ] && cp -f /tmp/shlonkum_backup/icon.png assets/icon.png
-
+          flutter create --no-overwrite .
           mkdir -p lib
-          [ -f /tmp/shlonkum_backup/main.dart ] && cp -f /tmp/shlonkum_backup/main.dart lib/main.dart
-          [ -f /tmp/shlonkum_backup/auth_screens.dart ] && cp -f /tmp/shlonkum_backup/auth_screens.dart lib/auth_screens.dart
-          [ -f /tmp/shlonkum_backup/home_screens.dart ] && cp -f /tmp/shlonkum_backup/home_screens.dart lib/home_screens.dart
+          cp -f *.dart lib/ 2>/dev/null || true
 
-          python3 -c '
-          import os, re, shutil
-          from PIL import Image
-
-          manifest_path = "android/app/src/main/AndroidManifest.xml"
-          if os.path.exists(manifest_path):
-              with open(manifest_path, "r", encoding="utf-8") as f:
-                  content = f.read()
-              if "android:label=" in content:
-                  content = re.sub(r"android:label=\"[^\"]*\"", "android:label=\"شلونكم IQ\"", content)
-              else:
-                  content = content.replace("<application", "<application android:label=\"شلونكم IQ\"", 1)
-              with open(manifest_path, "w", encoding="utf-8") as f:
-                  f.write(content)
-
-          anydpi_dir = "android/app/src/main/res/mipmap-anydpi-v26"
-          if os.path.exists(anydpi_dir):
-              shutil.rmtree(anydpi_dir)
-
-          icon_src = "assets/icon.png"
-          if os.path.exists(icon_src):
-              sizes = {
-                  "mipmap-mdpi": 48,
-                  "mipmap-hdpi": 72,
-                  "mipmap-xhdpi": 96,
-                  "mipmap-xxhdpi": 144,
-                  "mipmap-xxxhdpi": 192,
-              }
-              img = Image.open(icon_src).convert("RGBA")
-              for folder, px in sizes.items():
-                  out_dir = os.path.join("android/app/src/main/res", folder)
-                  os.makedirs(out_dir, exist_ok=True)
-                  resized = img.resize((px, px), Image.Resampling.LANCZOS)
-                  resized.save(os.path.join(out_dir, "ic_launcher.png"), format="PNG")
-                  resized.save(os.path.join(out_dir, "ic_launcher_round.png"), format="PNG")
-          '
-
-      - name: Install dependencies
+      - name: Install Flutter dependencies
         run: flutter pub get
 
-      - name: Build release APK
-        run: flutter build apk --release
+      - name: Build APK
+        run: flutter build apk --release --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: shlonkum-chat-iq-release-apk
+          name: shlonkum-iq-apk
           path: build/app/outputs/flutter-apk/app-release.apk
