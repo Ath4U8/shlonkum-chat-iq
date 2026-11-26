@@ -56,7 +56,7 @@ jobs:
             flutter pub add supabase_flutter
           fi
 
-      - name: Fix Gradle wrapper and Android SDK versions
+      - name: Fix Gradle wrapper and patch app_links SDK properties
         run: |
           sed -i 's/gradle-[0-9.]*-all.zip/gradle-8.5-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' android/app/build.gradle || true
@@ -65,6 +65,7 @@ jobs:
           sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle || true
           sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
           sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' android/app/build.gradle || true
+          find /home/runner/.pub-cache/hosted/pub.dev -path "*/app_links-*/android/build.gradle" -exec sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g; s/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' {} + || true
 
       - name: Install Flutter dependencies
         run: flutter pub get
