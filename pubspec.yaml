@@ -1,21 +1,24 @@
 name: shlonkum_chat_iq
-description: شلونكم چات - IQ - تطبيق تواصل عراقي
+description: شلونكم چات - IQ - تطبيق تواصل عراقي لكل العراق
 publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.3.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
-  supabase_flutter: ^2.5.0
-  flutter_launcher_icons: ^0.14.3
+  supabase_flutter: 2.10.0
+  flutter_launcher_icons: ^0.14.4
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
+  flutter_lints: ^5.0.0
+
+dependency_overrides:
+  app_links: 6.4.1
 
 flutter:
   uses-material-design: true
