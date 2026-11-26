@@ -1,52 +1,49 @@
-name: Build APK - Shlonkum Chat IQ
+name: Build Shlonkum Chat IQ APK
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
-  build:
+  build-android:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
-      - name: Setup Flutter
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.27.0'
           channel: 'stable'
+          cache: true
 
-      - name: Create Flutter project structure
+      - name: Sync root Dart files into lib
+        shell: bash
         run: |
-          cp pubspec.yaml /tmp/pubspec-backup.yaml
-          cp main.dart /tmp/main-backup.dart
-          flutter create --project-name shlonkum_chat_iq --org com.shlonkum.chat .
-          cp /tmp/pubspec-backup.yaml pubspec.yaml
-          cp /tmp/main-backup.dart lib/main.dart
-          mkdir -p assets
-          cp iraq_map.png assets/iraq_map.png || true
-          cp ishtar_gate.jfif assets/ishtar_gate.jfif || true
-          cp icon.png assets/icon.png || true
+          mkdir -p lib
+          [ -f main.dart ] && cp -f main.dart lib/main.dart
+          [ -f auth_screens.dart ] && cp -f auth_screens.dart lib/auth_screens.dart
+          [ -f home_screens.dart ] && cp -f home_screens.dart lib/home_screens.dart
+          ls -la lib
 
-      - name: Get packages
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate App Icon
-        run: flutter pub run flutter_launcher_icons
-
-      - name: Build APK
+      - name: Build release APK
         run: flutter build apk --release
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: shlonkum-chat-iq-apk
+          name: shlonkum-chat-iq-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
