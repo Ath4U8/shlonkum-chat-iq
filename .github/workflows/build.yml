@@ -13,6 +13,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Backup root Dart files
+        run: |
+          mkdir -p /tmp/dart_backup
+          cp -f *.dart /tmp/dart_backup/ 2>/dev/null || true
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -33,11 +38,11 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Prepare Flutter project with valid package name
+      - name: Create clean Android Flutter project and restore Dart files
         run: |
-          flutter create --no-overwrite --project-name shlonkum_chat_iq .
+          flutter create --overwrite --platforms=android --project-name shlonkum_chat_iq .
           mkdir -p lib
-          cp -f *.dart lib/ 2>/dev/null || true
+          cp -f /tmp/dart_backup/*.dart lib/ 2>/dev/null || true
 
       - name: Update Gradle wrapper to compatible version
         run: |
