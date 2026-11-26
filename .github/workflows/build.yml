@@ -17,6 +17,7 @@ jobs:
         run: |
           mkdir -p /tmp/project_backup
           cp -f *.dart /tmp/project_backup/ 2>/dev/null || true
+          cp -f lib/*.dart /tmp/project_backup/ 2>/dev/null || true
           cp -f pubspec.yaml /tmp/project_backup/ 2>/dev/null || true
           cp -f pubspec.lock /tmp/project_backup/ 2>/dev/null || true
 
@@ -40,9 +41,10 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Create Android Flutter project and restore files
+      - name: Recreate clean Android project and restore files
         run: |
-          flutter create --overwrite --platforms=android --project-name shlonkum_chat_iq .
+          rm -rf android
+          flutter create --platforms=android --project-name shlonkum_chat_iq .
           cp -f /tmp/project_backup/pubspec.yaml ./pubspec.yaml 2>/dev/null || true
           cp -f /tmp/project_backup/pubspec.lock ./pubspec.lock 2>/dev/null || true
           mkdir -p lib
