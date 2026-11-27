@@ -1,67 +1,23 @@
-name: Build Flutter App
-
+name: Build APK
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Backup project files
-        run: |
-          mkdir -p /tmp/project_backup
-          cp -f *.dart /tmp/project_backup/ 2>/dev/null || true
-          cp -f lib/*.dart /tmp/project_backup/ 2>/dev/null || true
-          cp -f pubspec.yaml /tmp/project_backup/ 2>/dev/null || true
-          cp -f pubspec.lock /tmp/project_backup/ 2>/dev/null || true
-          cp -f iraq_map.png /tmp/project_backup/ 2>/dev/null || true
-          cp -f ishtar_gate.jfif /tmp/project_backup/ 2>/dev/null || true
-          cp -f icon.png /tmp/project_backup/ 2>/dev/null || true
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Set up Flutter 3.35.7
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.7'
           channel: 'stable'
-          cache: true
-
-      - name: Recreate clean Android project and restore files
-        run: |
-          rm -rf android
-          flutter create --platforms=android --project-name shlonkum_chat_iq .
-          cp -f /tmp/project_backup/pubspec.yaml ./pubspec.yaml 2>/dev/null || true
-          cp -f /tmp/project_backup/pubspec.lock ./pubspec.lock 2>/dev/null || true
-          mkdir -p lib
-          cp -f /tmp/project_backup/*.dart lib/ 2>/dev/null || true
-          mkdir -p assets
-          cp -f /tmp/project_backup/iraq_map.png assets/iraq_map.png 2>/dev/null || true
-          cp -f /tmp/project_backup/ishtar_gate.jfif assets/ishtar_gate.jfif 2>/dev/null || true
-          cp -f /tmp/project_backup/icon.png assets/icon.png 2>/dev/null || true
-          ls -la assets/ || true
-          ls -la lib/ || true
-
-      - name: Clean and install dependencies
-        run: |
-          flutter clean
-          flutter pub get
-
+      - name: Get packages
+        run: flutter pub get
+      - name: Generate App Icon
+        run: flutter pub run flutter_launcher_icons
       - name: Build APK
-        run: flutter build apk --release --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
-
-      - name: Upload APK artifact
+        run: flutter build apk --release
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: shlonkum-iq-apk
+          name: shlonkum-chat-iq-apk
           path: build/app/outputs/flutter-apk/app-release.apk
