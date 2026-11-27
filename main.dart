@@ -7,7 +7,10 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// عنوان الخادم. إذا أنشأت Cloudflare Worker لاحقا غيّر هذا السطر فقط.
 const String kApiBaseUrl = 'https://tfcpkoozqttdzligfizu.supabase.co';
+// جداول هذا التطبيق منفصلة عن جداول التطبيقات الاخرى بنفس مشروع Supabase
+const String kTablePrefix = 'iq_';
 const String kApiAnonKey = 'sb_publishable_nbqpxqvicOkjDlrtQmbrug_J0r557Sv';
 
 const Color kRoyal = Color(0xFF1B3A8F);
@@ -29,7 +32,7 @@ class ApiClient {
       };
 
   static Uri _uri(String table, [Map<String, String>? query]) {
-    final base = Uri.parse('$kApiBaseUrl/rest/v1/$table');
+    final base = Uri.parse('$kApiBaseUrl/rest/v1/$kTablePrefix$table');
     if (query == null || query.isEmpty) return base;
     return base.replace(queryParameters: query);
   }
@@ -85,6 +88,8 @@ class LocalStore {
     await p.setString('personalNumber', personalNumber);
     await p.setString('status', status);
     await p.setString('photoPath', photoPath);
+    await p.setString('contacts', jsonEncode(contacts));
+    await p.setString('messages', jsonEncode(messages));
   }
 
   static Future<bool> load() async {
@@ -94,6 +99,12 @@ class LocalStore {
     personalNumber = p.getString('personalNumber') ?? '';
     status = p.getString('status') ?? '';
     photoPath = p.getString('photoPath') ?? '';
+    try {
+      final c = p.getString('contacts');
+      if (c != null && c.isNotEmpty) contacts = jsonDecode(c) as List;
+      final m = p.getString('messages');
+      if (m != null && m.isNotEmpty) messages = jsonDecode(m) as List;
+    } catch (_) {}
     return personalNumber.length == 9 && name.isNotEmpty;
   }
 }
@@ -106,7 +117,7 @@ class IshtarWatermark extends StatelessWidget {
     return Positioned.fill(
       child: IgnorePointer(
         child: Opacity(
-          opacity: 0.07,
+          opacity: 0.12,
           child: Image.asset(
             'assets/ishtar_gate.jfif',
             fit: BoxFit.cover,
@@ -272,6 +283,7 @@ class _Screen1RegisterState extends State<Screen1Register> {
     String num = '';
     bool isReturning = false;
 
+    // 1) حساب محفوظ على الجهاز بنفس الاسم وكلمة المرور
     if (LocalStore.name == name &&
         LocalStore.password == pass &&
         LocalStore.personalNumber.length == 9) {
@@ -279,6 +291,7 @@ class _Screen1RegisterState extends State<Screen1Register> {
       isReturning = true;
     }
 
+    // 2) الخادم
     try {
       final rows = await ApiClient.getRows('profiles', {
         'select': 'personal_number,status',
@@ -286,26 +299,37 @@ class _Screen1RegisterState extends State<Screen1Register> {
         'password_hash': 'eq.$pass',
         'limit': '1',
       });
+
       if (rows.isNotEmpty) {
         final serverNum = (rows[0]['personal_number'] ?? '').toString().trim();
         if (serverNum.length == 9) {
-          num = serverNum;
+          num = serverNum; // رقم الخادم هو المرجع
           LocalStore.status = (rows[0]['status'] ?? '').toString();
           isReturning = true;
         }
-      }
-      if (!isReturning) {
-        if (num.isEmpty) {
+      } else if (isReturning) {
+        // الحساب موجود محليا وغير موجود بالخادم: ارفعه بنفس الرقم
+        try {
+          await ApiClient.insertRow('profiles', {
+            'name': name,
+            'password_hash': pass,
+            'personal_number': num,
+            'status': LocalStore.status,
+            'is_online': true,
+            'last_seen': DateTime.now().toUtc().toIso8601String(),
+          });
+        } catch (_) {}
+      } else {
+        // حساب جديد فعلا
+        num = generatePersonalNumber();
+        for (int i = 0; i < 5; i++) {
+          final ex = await ApiClient.getRows('profiles', {
+            'select': 'personal_number',
+            'personal_number': 'eq.$num',
+            'limit': '1',
+          });
+          if (ex.isEmpty) break;
           num = generatePersonalNumber();
-          for (int i = 0; i < 5; i++) {
-            final ex = await ApiClient.getRows('profiles', {
-              'select': 'personal_number',
-              'personal_number': 'eq.$num',
-              'limit': '1',
-            });
-            if (ex.isEmpty) break;
-            num = generatePersonalNumber();
-          }
         }
         await ApiClient.insertRow('profiles', {
           'name': name,
@@ -318,11 +342,17 @@ class _Screen1RegisterState extends State<Screen1Register> {
       }
     } catch (e) {
       if (num.isEmpty) {
-        num = generatePersonalNumber();
+        // لا حساب محلي ولا وصول للخادم: لا نولّد رقما جديدا ابدا
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _msg =
+                'تعذر الاتصال بالخادم. اول تسجيل او الدخول من جهاز جديد يحتاج اتصالا بالخادم. حاول لاحقا.\n$e';
+          });
+        }
+        return;
       }
-      if (mounted) {
-        setState(() => _msg = 'تعذر الاتصال بالخادم حالياً: $e');
-      }
+      // يوجد رقم محلي: نكمل به دون الخادم
     }
 
     LocalStore.name = name;
@@ -860,6 +890,7 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
         }
         _contacts = merged;
         LocalStore.contacts = merged;
+        await LocalStore.save();
       } else {
         _contacts = List.from(LocalStore.contacts);
       }
@@ -899,7 +930,8 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
       ),
     );
     ctrl.dispose();
-    if (result == null || result.length != 9) {
+    if (result == null) return;
+    if (result.length != 9) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('اكتب رقم شخصي صحيح - 9 ارقام')),
@@ -927,7 +959,10 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ بالبحث: $e')),
+          SnackBar(
+            duration: const Duration(seconds: 8),
+            content: Text('تعذر الاتصال بالخادم، تحقق من الانترنت وحاول مرة اخرى\n$e'),
+          ),
         );
       }
       return;
@@ -976,7 +1011,11 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
         'friend_number': result,
       });
     } catch (_) {}
-    LocalStore.contacts.add(newContact);
+    final already = LocalStore.contacts.any((c) =>
+        (c['friend_number'] ?? c['personal_number'] ?? '').toString() ==
+        result);
+    if (!already) LocalStore.contacts.add(newContact);
+    await LocalStore.save();
     await _load();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1179,6 +1218,7 @@ class _Screen5ChatState extends State<Screen5Chat> {
       await ApiClient.insertRow('messages', msg);
     } catch (_) {}
     LocalStore.messages.add(msg);
+    await LocalStore.save();
     await _load();
   }
 
@@ -1209,6 +1249,7 @@ class _Screen5ChatState extends State<Screen5Chat> {
       });
     } catch (_) {}
     LocalStore.messages.add(msg);
+    await LocalStore.save();
     await _load();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
