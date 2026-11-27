@@ -259,7 +259,9 @@ class _Screen1RegisterState extends State<Screen1Register> {
       return;
     }
     if (!supabaseReady) {
-      setState(() => _msg = supabaseInitError ?? 'تعذر تهيئة الاتصال بقاعدة البيانات.');
+      setState(
+        () => _msg = supabaseInitError ?? 'تعذر تهيئة الاتصال بقاعدة البيانات.',
+      );
       return;
     }
 
@@ -837,7 +839,9 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
 
     try {
       if (!supabaseReady) {
-        throw Exception(supabaseInitError ?? 'الاتصال بقاعدة البيانات غير جاهز.');
+        throw Exception(
+          supabaseInitError ?? 'الاتصال بقاعدة البيانات غير جاهز.',
+        );
       }
 
       final contactRows = await supabase
@@ -930,7 +934,9 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
     if (!RegExp(r'^[1-9][0-9]{8}$').hasMatch(targetNumber)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('أدخل رقماً شخصياً صحيحاً مكوّناً من 9 أرقام.')),
+          const SnackBar(
+            content: Text('أدخل رقماً شخصياً صحيحاً مكوّناً من 9 أرقام.'),
+          ),
         );
       }
       return;
@@ -1186,7 +1192,9 @@ class _Screen5ChatState extends State<Screen5Chat> {
       final rows = await supabase
           .from('messages')
           .select()
-          .or('and(sender_number.eq.$me,receiver_number.eq.$peer),and(sender_number.eq.$peer,receiver_number.eq.$me)')
+          .or(
+            'and(sender_number.eq.$me,receiver_number.eq.$peer),and(sender_number.eq.$peer,receiver_number.eq.$me)',
+          )
           .order('created_at', ascending: true);
 
       final peerProfile = await supabase
