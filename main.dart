@@ -7,8 +7,11 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// عنوان الخادم. إذا أنشأت Cloudflare Worker لاحقا غيّر هذا السطر فقط.
-const String kApiBaseUrl = 'https://tfcpkoozqttdzligfizu.supabase.co';
+// عناوين الخادم بالترتيب: الوسيط (Cloudflare Worker) اولا ثم Supabase مباشرة
+const List<String> kApiBaseUrls = [
+  'https://iq-api.a00072288.workers.dev',
+  'https://tfcpkoozqttdzligfizu.supabase.co',
+];
 // جداول هذا التطبيق منفصلة عن جداول التطبيقات الاخرى بنفس مشروع Supabase
 const String kTablePrefix = 'iq_';
 const String kApiAnonKey = 'sb_publishable_nbqpxqvicOkjDlrtQmbrug_J0r557Sv';
@@ -31,16 +34,41 @@ class ApiClient {
         'Prefer': 'return=representation',
       };
 
-  static Uri _uri(String table, [Map<String, String>? query]) {
-    final base = Uri.parse('$kApiBaseUrl/rest/v1/$kTablePrefix$table');
-    if (query == null || query.isEmpty) return base;
-    return base.replace(queryParameters: query);
+  static Uri _uri(String base, String table, [Map<String, String>? query]) {
+    final u = Uri.parse('$base/rest/v1/$kTablePrefix$table');
+    if (query == null || query.isEmpty) return u;
+    return u.replace(queryParameters: query);
+  }
+
+  // يجرب العناوين بالترتيب، وينتقل للتالي فقط عند فشل الشبكة
+  static Future<http.Response> _request(
+    String method,
+    String table,
+    Map<String, String>? query, {
+    Object? body,
+  }) async {
+    Object? lastError;
+    for (final base in kApiBaseUrls) {
+      try {
+        final uri = _uri(base, table, query);
+        final Future<http.Response> req;
+        if (method == 'GET') {
+          req = http.get(uri, headers: _headers);
+        } else if (method == 'POST') {
+          req = http.post(uri, headers: _headers, body: jsonEncode(body));
+        } else {
+          req = http.patch(uri, headers: _headers, body: jsonEncode(body));
+        }
+        return await req.timeout(const Duration(seconds: 12));
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw lastError ?? Exception('لا يوجد اتصال');
   }
 
   static Future<List> getRows(String table, Map<String, String> query) async {
-    final res = await http
-        .get(_uri(table, query), headers: _headers)
-        .timeout(const Duration(seconds: 12));
+    final res = await _request('GET', table, query);
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('HTTP ${res.statusCode}: ${res.body}');
     }
@@ -50,9 +78,7 @@ class ApiClient {
   }
 
   static Future<void> insertRow(String table, Map<String, dynamic> body) async {
-    final res = await http
-        .post(_uri(table), headers: _headers, body: jsonEncode(body))
-        .timeout(const Duration(seconds: 12));
+    final res = await _request('POST', table, null, body: body);
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('HTTP ${res.statusCode}: ${res.body}');
     }
@@ -63,9 +89,7 @@ class ApiClient {
     Map<String, String> query,
     Map<String, dynamic> body,
   ) async {
-    final res = await http
-        .patch(_uri(table, query), headers: _headers, body: jsonEncode(body))
-        .timeout(const Duration(seconds: 12));
+    final res = await _request('PATCH', table, query, body: body);
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('HTTP ${res.statusCode}: ${res.body}');
     }
