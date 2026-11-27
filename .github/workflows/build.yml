@@ -10,16 +10,15 @@ jobs:
         with:
           flutter-version: '3.35.7'
           channel: 'stable'
-      - name: Backup root files - keep your GitHub layout as is
+      - name: Backup root files
         run: |
           mkdir -p /tmp/backup
           cp main.dart /tmp/backup/main.dart
           cp pubspec.yaml /tmp/backup/pubspec.yaml
-          cp AndroidManifest.xml /tmp/backup/AndroidManifest.xml || echo "no manifest"
           cp icon.png /tmp/backup/icon.png || echo "no icon"
           cp iraq_map.png /tmp/backup/iraq_map.png || echo "no map"
           cp ishtar_gate.jfif /tmp/backup/ishtar_gate.jfif || echo "no ishtar"
-      - name: Create Flutter structure for build only - you do NOT move files
+      - name: Create Flutter structure for build only
         run: |
           flutter create . --project-name shlonkum_chat_iq --org com.shlonkum.chat --platforms android || true
           cp /tmp/backup/pubspec.yaml pubspec.yaml
@@ -27,7 +26,10 @@ jobs:
           cp /tmp/backup/icon.png icon.png || true
           cp /tmp/backup/iraq_map.png iraq_map.png || true
           cp /tmp/backup/ishtar_gate.jfif ishtar_gate.jfif || true
-          cp /tmp/backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml || true
+      - name: Set Arabic app name in generated Manifest only
+        run: |
+          sed -i 's/android:label="[^"]*"/android:label="شلونكم چات - IQ"/' android/app/src/main/AndroidManifest.xml || true
+          cat android/app/src/main/AndroidManifest.xml
       - name: Get packages
         run: flutter pub get
       - name: Generate App Icon
