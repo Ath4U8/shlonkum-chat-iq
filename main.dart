@@ -47,7 +47,7 @@ class ApiClient {
     Map<String, String>? query, {
     Object? body,
   }) async {
-    Object? lastError;
+    final errors = <String>[];
     for (final base in kApiBaseUrls) {
       try {
         final uri = _uri(base, table, query);
@@ -61,10 +61,10 @@ class ApiClient {
         }
         return await req.timeout(const Duration(seconds: 12));
       } catch (e) {
-        lastError = e;
+        errors.add('[$base] $e');
       }
     }
-    throw lastError ?? Exception('لا يوجد اتصال');
+    throw Exception(errors.join('\n'));
   }
 
   static Future<List> getRows(String table, Map<String, String> query) async {
