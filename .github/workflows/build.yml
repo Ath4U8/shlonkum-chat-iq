@@ -44,15 +44,19 @@ jobs:
         run: flutter pub get
       - name: Generate App Icon
         run: flutter pub run flutter_launcher_icons || true
-      - name: Build APK with full error log
-        run: flutter build apk --release --verbose || true
-      - name: Build APK with Gradle stacktrace
+      - name: Build APK
+        run: flutter build apk --release
+      - name: Find APK files
         run: |
-          cd android
-          ./gradlew assembleRelease --stacktrace || true
+          find build -name "*.apk" || true
+          find android -name "*.apk" || true
+          ls -lh build/app/outputs/flutter-apk/ || true
+          ls -lh android/app/build/outputs/apk/release/ || true
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: shlonkum-chat-iq-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-        if: always()
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
