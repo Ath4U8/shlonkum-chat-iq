@@ -8,6 +8,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Java 17 - fixes Java 25.0.5 error
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.7'
@@ -33,9 +38,7 @@ jobs:
           sed -i 's/android:label="[^"]*"/android:label="شلونكم چات - IQ"/' android/app/src/main/AndroidManifest.xml || true
       - name: Fix NDK version conflict - force 27.0.12077973
         run: |
-          grep -r "ndkVersion" android/app/ || echo "no ndkVersion line"
           sed -i 's/ndkVersion = .*/ndkVersion = "27.0.12077973"/' android/app/build.gradle.kts || true
-          grep -r "ndkVersion" android/app/ || echo "no ndkVersion line after"
       - name: Install NDK 27.0.12077973
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973" || true
@@ -50,8 +53,6 @@ jobs:
         run: |
           find build -name "*.apk" || true
           find android -name "*.apk" || true
-          ls -lh build/app/outputs/flutter-apk/ || true
-          ls -lh android/app/build/outputs/apk/release/ || true
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
