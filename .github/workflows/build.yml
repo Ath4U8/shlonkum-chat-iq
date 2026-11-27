@@ -31,9 +31,9 @@ jobs:
       - name: Set Arabic app name in generated Manifest only
         run: |
           sed -i 's/android:label="[^"]*"/android:label="شلونكم چات - IQ"/' android/app/src/main/AndroidManifest.xml || true
-      - name: Install NDK 25.0.5.1 - fixes 25.0.5.1 error
+      - name: Install NDK 25.0.5 and 25.0.5.1 - fixes 25.0.5 error
         run: |
-          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;25.0.5.1" || echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.0.5.1" || true
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;25.0.5" "ndk;25.0.5.1" || true
           ls $ANDROID_HOME/ndk/ || true
       - name: Get packages
         run: flutter pub get
