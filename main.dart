@@ -9,7 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 const String supabaseUrl = 'https://tfcpkoozqttdzligfizu.supabase.co';
-const String supabaseAnonKey = 'PUT_YOUR_ANON_KEY_HERE';
+const String supabaseAnonKey = 'sb_publishable_nbqpxqvicOkjDlrtQmbrug_J0r557Sv';
 const Color kRoyal = Color(0xFF1B3A8F);
 const Color kTurquoise = Color(0xFF00C2A8);
 const Color kGold = Color(0xFFD9A441);
