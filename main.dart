@@ -1,16 +1,15 @@
-// شلونكم چات - IQ - v3 - إصلاح كامل 13 نقطة - حقيقي وليس وهمي
-// 1 أيقونة 2 اسم عربي 3 بحث رقم 4 صورة شخصية 5 حفظ دخول 6 رقم ثابت 7 دخول حقيقي
-// 8 بوابة عشتار علامة مائية شاشات 2-5 9 Created by علامة محفورة زرقاء شاشات 1-3
-// 10 محادثات كتابية فقط 11 إيموجي وملصقات عراقية 12 صديق مو جهة اتصال 13 مؤشر قراءة + صور وملفات
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:image_picker/image_picker.dart';
 
-const String supabaseUrl = 'https://tfcpkoozqttdzligfizu.supabase.co';
-const String supabaseAnonKey = 'sb_publishable_nbqpxqvicOkjDlrtQmbrug_J0r557Sv';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+const String kApiBaseUrl = 'https://tfcpkoozqttdzligfizu.supabase.co';
+const String kApiAnonKey = 'sb_publishable_nbqpxqvicOkjDlrtQmbrug_J0r557Sv';
+
 const Color kRoyal = Color(0xFF1B3A8F);
 const Color kTurquoise = Color(0xFF00C2A8);
 const Color kGold = Color(0xFFD9A441);
@@ -18,13 +17,57 @@ const Color kBeige = Color(0xFFF7F5EF);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
-  } catch (_) {}
   runApp(const ShlonkumApp());
 }
 
-final supabase = Supabase.instance.client;
+class ApiClient {
+  static Map<String, String> get _headers => {
+        'apikey': kApiAnonKey,
+        'Authorization': 'Bearer $kApiAnonKey',
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      };
+
+  static Uri _uri(String table, [Map<String, String>? query]) {
+    final base = Uri.parse('$kApiBaseUrl/rest/v1/$table');
+    if (query == null || query.isEmpty) return base;
+    return base.replace(queryParameters: query);
+  }
+
+  static Future<List> getRows(String table, Map<String, String> query) async {
+    final res = await http
+        .get(_uri(table, query), headers: _headers)
+        .timeout(const Duration(seconds: 12));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('HTTP ${res.statusCode}: ${res.body}');
+    }
+    final decoded = jsonDecode(res.body);
+    if (decoded is List) return decoded;
+    return [];
+  }
+
+  static Future<void> insertRow(String table, Map<String, dynamic> body) async {
+    final res = await http
+        .post(_uri(table), headers: _headers, body: jsonEncode(body))
+        .timeout(const Duration(seconds: 12));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('HTTP ${res.statusCode}: ${res.body}');
+    }
+  }
+
+  static Future<void> updateRows(
+    String table,
+    Map<String, String> query,
+    Map<String, dynamic> body,
+  ) async {
+    final res = await http
+        .patch(_uri(table, query), headers: _headers, body: jsonEncode(body))
+        .timeout(const Duration(seconds: 12));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('HTTP ${res.statusCode}: ${res.body}');
+    }
+  }
+}
 
 class LocalStore {
   static String name = '';
@@ -51,30 +94,30 @@ class LocalStore {
     personalNumber = p.getString('personalNumber') ?? '';
     status = p.getString('status') ?? '';
     photoPath = p.getString('photoPath') ?? '';
-    return personalNumber.isNotEmpty && name.isNotEmpty;
+    return personalNumber.length == 9 && name.isNotEmpty;
   }
 }
 
-// ويدجت بوابة عشتار علامة مائية - شاشات 2-5
 class IshtarWatermark extends StatelessWidget {
   const IshtarWatermark({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Positioned.fill(
-      child: Opacity(
-        opacity: 0.07,
-        child: Image.asset(
-          'ishtar_gate.jfif',
-          fit: BoxFit.cover,
-          errorBuilder: (c, e, s) => const SizedBox(),
+      child: IgnorePointer(
+        child: Opacity(
+          opacity: 0.07,
+          child: Image.asset(
+            'assets/ishtar_gate.jfif',
+            fit: BoxFit.cover,
+            errorBuilder: (c, e, s) => const SizedBox(),
+          ),
         ),
       ),
     );
   }
 }
 
-// ويدجت Created by علامة محفورة زرقاء - شاشات 1-3
 class CreatorWatermark extends StatelessWidget {
   const CreatorWatermark({super.key});
 
@@ -183,7 +226,7 @@ bool isStrongPassword(String p) {
 }
 
 String generatePersonalNumber() {
-  final r = Random();
+  final r = Random.secure();
   return (100000000 + r.nextInt(900000000)).toString();
 }
 
@@ -219,51 +262,74 @@ class _Screen1RegisterState extends State<Screen1Register> {
       setState(() => _msg = 'كلمة المرور ضعيفة - راجع الملاحظة بالاسفل');
       return;
     }
+
     setState(() {
       _loading = true;
       _msg = '';
     });
+
+    await LocalStore.load();
     String num = '';
     bool isReturning = false;
+
+    if (LocalStore.name == name &&
+        LocalStore.password == pass &&
+        LocalStore.personalNumber.length == 9) {
+      num = LocalStore.personalNumber;
+      isReturning = true;
+    }
+
     try {
-      final existing = await supabase
-          .from('profiles')
-          .select()
-          .eq('name', name)
-          .eq('password_hash', pass)
-          .limit(1);
-      if (existing is List && existing.isNotEmpty) {
-        num = (existing[0]['personal_number'] ?? '').toString();
-        isReturning = true;
-      }
-    } catch (_) {}
-    if (num.isEmpty) {
-      num = generatePersonalNumber();
-      try {
-        for (int i = 0; i < 5; i++) {
-          final ex = await supabase
-              .from('profiles')
-              .select('personal_number')
-              .eq('personal_number', num)
-              .limit(1);
-          if (ex is List && ex.isEmpty) break;
-          if (ex is List && ex.isNotEmpty) num = generatePersonalNumber();
-          if (ex is! List) break;
+      final rows = await ApiClient.getRows('profiles', {
+        'select': 'personal_number,status',
+        'name': 'eq.$name',
+        'password_hash': 'eq.$pass',
+        'limit': '1',
+      });
+      if (rows.isNotEmpty) {
+        final serverNum = (rows[0]['personal_number'] ?? '').toString().trim();
+        if (serverNum.length == 9) {
+          num = serverNum;
+          LocalStore.status = (rows[0]['status'] ?? '').toString();
+          isReturning = true;
         }
-        await supabase.from('profiles').insert({
+      }
+      if (!isReturning) {
+        if (num.isEmpty) {
+          num = generatePersonalNumber();
+          for (int i = 0; i < 5; i++) {
+            final ex = await ApiClient.getRows('profiles', {
+              'select': 'personal_number',
+              'personal_number': 'eq.$num',
+              'limit': '1',
+            });
+            if (ex.isEmpty) break;
+            num = generatePersonalNumber();
+          }
+        }
+        await ApiClient.insertRow('profiles', {
           'name': name,
           'password_hash': pass,
           'personal_number': num,
-          'status': '',
+          'status': LocalStore.status,
           'is_online': true,
-          'last_seen': DateTime.now().toIso8601String(),
+          'last_seen': DateTime.now().toUtc().toIso8601String(),
         });
-      } catch (_) {}
+      }
+    } catch (e) {
+      if (num.isEmpty) {
+        num = generatePersonalNumber();
+      }
+      if (mounted) {
+        setState(() => _msg = 'تعذر الاتصال بالخادم حالياً: $e');
+      }
     }
+
     LocalStore.name = name;
     LocalStore.password = pass;
     LocalStore.personalNumber = num;
     await LocalStore.save();
+
     if (!mounted) return;
     setState(() => _loading = false);
     if (isReturning) {
@@ -292,13 +358,10 @@ class _Screen1RegisterState extends State<Screen1Register> {
                 SizedBox(
                   width: MediaQuery.of(context).size.width * 0.30,
                   child: Image.asset(
-                    'iraq_map.png',
+                    'assets/iraq_map.png',
                     fit: BoxFit.contain,
-                    errorBuilder: (c, e, s) => const Icon(
-                      Icons.map,
-                      size: 70,
-                      color: kRoyal,
-                    ),
+                    errorBuilder: (c, e, s) =>
+                        const Icon(Icons.map, size: 70, color: kRoyal),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -551,6 +614,12 @@ class _Screen3ProfileState extends State<Screen3Profile> {
   XFile? _picked;
 
   @override
+  void initState() {
+    super.initState();
+    _status.text = LocalStore.status;
+  }
+
+  @override
   void dispose() {
     _status.dispose();
     super.dispose();
@@ -578,10 +647,11 @@ class _Screen3ProfileState extends State<Screen3Profile> {
     setState(() => _loading = true);
     LocalStore.status = _status.text.trim();
     try {
-      await supabase
-          .from('profiles')
-          .update({'status': LocalStore.status})
-          .eq('personal_number', LocalStore.personalNumber);
+      await ApiClient.updateRows(
+        'profiles',
+        {'personal_number': 'eq.${LocalStore.personalNumber}'},
+        {'status': LocalStore.status},
+      );
     } catch (_) {}
     await LocalStore.save();
     if (!mounted) return;
@@ -594,7 +664,8 @@ class _Screen3ProfileState extends State<Screen3Profile> {
 
   @override
   Widget build(BuildContext context) {
-    final hasPhoto = _picked != null || LocalStore.photoPath.isNotEmpty;
+    final activePath = _picked?.path ?? LocalStore.photoPath;
+    final hasPhoto = activePath.isNotEmpty && File(activePath).existsSync();
     return Scaffold(
       backgroundColor: kBeige,
       appBar: AppBar(
@@ -618,11 +689,8 @@ class _Screen3ProfileState extends State<Screen3Profile> {
                       CircleAvatar(
                         radius: 58,
                         backgroundColor: kRoyal,
-                        backgroundImage: _picked != null
-                            ? FileImage(File(_picked!.path))
-                            : (LocalStore.photoPath.isNotEmpty
-                                ? FileImage(File(LocalStore.photoPath))
-                                : null) as ImageProvider?,
+                        backgroundImage:
+                            hasPhoto ? FileImage(File(activePath)) : null,
                         child: hasPhoto
                             ? null
                             : const Icon(
@@ -766,12 +834,32 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final res = await supabase
-          .from('contacts')
-          .select()
-          .eq('owner_number', LocalStore.personalNumber);
-      if (res is List && res.isNotEmpty) {
-        _contacts = res.map((e) => Map.from(e as Map)).toList();
+      final res = await ApiClient.getRows('contacts', {
+        'select': 'friend_number',
+        'owner_number': 'eq.${LocalStore.personalNumber}',
+      });
+      if (res.isNotEmpty) {
+        final nums = res
+            .map((e) => (e['friend_number'] ?? '').toString().trim())
+            .where((n) => n.isNotEmpty)
+            .toList();
+        final merged = [];
+        for (final n in nums) {
+          final profs = await ApiClient.getRows('profiles', {
+            'select': 'name,personal_number,is_online,status',
+            'personal_number': 'eq.$n',
+            'limit': '1',
+          });
+          final p = profs.isNotEmpty ? profs[0] : null;
+          merged.add({
+            'name': (p?['name'] ?? 'صديق').toString(),
+            'friend_number': n,
+            'is_online': p?['is_online'] == true,
+            'status': (p?['status'] ?? '').toString(),
+          });
+        }
+        _contacts = merged;
+        LocalStore.contacts = merged;
       } else {
         _contacts = List.from(LocalStore.contacts);
       }
@@ -827,35 +915,35 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
       }
       return;
     }
+
     Map? found;
     try {
-      final r = await supabase
-          .from('profiles')
-          .select()
-          .eq('personal_number', result)
-          .limit(1);
-      if (r is List && r.isNotEmpty) found = Map.from(r[0] as Map);
+      final r = await ApiClient.getRows('profiles', {
+        'select': 'name,personal_number,is_online,status',
+        'personal_number': 'eq.$result',
+        'limit': '1',
+      });
+      if (r.isNotEmpty) found = Map.from(r[0] as Map);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ بالبحث: $e - نفذ SQL فتح الصلاحيات')),
+          SnackBar(content: Text('خطأ بالبحث: $e')),
         );
       }
+      return;
     }
+
     if (found == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'هذا الرقم ما مسجل بالتطبيق بعد - تأكد إنك نفذت SQL فتح الصلاحيات',
-            ),
-          ),
+          const SnackBar(content: Text('هذا الرقم غير مسجل بالتطبيق بعد')),
         );
       }
       return;
     }
     if (!mounted) return;
-    final name = found['name'] ?? 'صديق';
+
+    final name = (found['name'] ?? 'صديق').toString();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
@@ -874,15 +962,16 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
       ),
     );
     if (confirm != true) return;
+
     final newContact = {
       'name': name,
       'personal_number': result,
       'friend_number': result,
-      'is_online': found['is_online'] ?? true,
-      'status': found['status'] ?? '',
+      'is_online': found['is_online'] == true,
+      'status': (found['status'] ?? '').toString(),
     };
     try {
-      await supabase.from('contacts').insert({
+      await ApiClient.insertRow('contacts', {
         'owner_number': LocalStore.personalNumber,
         'friend_number': result,
       });
@@ -928,7 +1017,7 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
                         final num =
                             (f['friend_number'] ?? f['personal_number'] ?? '')
                                 .toString();
-                        final online = f['is_online'] ?? true;
+                        final online = f['is_online'] == true;
                         return Card(
                           margin: const EdgeInsets.symmetric(
                             horizontal: 14,
@@ -948,9 +1037,7 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
                                     width: 14,
                                     height: 14,
                                     decoration: BoxDecoration(
-                                      color: online == true
-                                          ? Colors.green
-                                          : Colors.red,
+                                      color: online ? Colors.green : Colors.red,
                                       shape: BoxShape.circle,
                                       border: Border.all(
                                         color: Colors.white,
@@ -978,7 +1065,7 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
                                 builder: (_) => Screen5Chat(
                                   friendName: name,
                                   friendNumber: num,
-                                  isOnline: online == true,
+                                  isOnline: online,
                                 ),
                               ),
                             ),
@@ -1040,36 +1127,35 @@ class _Screen5ChatState extends State<Screen5Chat> {
 
   Future<void> _markRead() async {
     try {
-      await supabase
-          .from('messages')
-          .update({'is_read': true})
-          .eq('sender_number', widget.friendNumber)
-          .eq('receiver_number', LocalStore.personalNumber)
-          .eq('is_read', false);
+      await ApiClient.updateRows(
+        'messages',
+        {
+          'sender_number': 'eq.${widget.friendNumber}',
+          'receiver_number': 'eq.${LocalStore.personalNumber}',
+          'is_read': 'eq.false',
+        },
+        {'is_read': true},
+      );
     } catch (_) {}
   }
 
   Future<void> _load() async {
     await _markRead();
+    final me = LocalStore.personalNumber;
+    final peer = widget.friendNumber;
     try {
-      final res = await supabase.from('messages').select().order('created_at');
-      if (res is List) {
-        _msgs = res
-            .map((e) => Map.from(e as Map))
-            .where((m) =>
-                (m['sender_number'] == LocalStore.personalNumber &&
-                    m['receiver_number'] == widget.friendNumber) ||
-                (m['sender_number'] == widget.friendNumber &&
-                    m['receiver_number'] == LocalStore.personalNumber))
-            .toList();
-      }
+      final res = await ApiClient.getRows('messages', {
+        'select': '*',
+        'or':
+            '(and(sender_number.eq.$me,receiver_number.eq.$peer),and(sender_number.eq.$peer,receiver_number.eq.$me))',
+        'order': 'created_at.asc',
+      });
+      _msgs = res;
     } catch (_) {
       _msgs = LocalStore.messages
           .where((m) =>
-              (m['sender_number'] == LocalStore.personalNumber &&
-                  m['receiver_number'] == widget.friendNumber) ||
-              (m['sender_number'] == widget.friendNumber &&
-                  m['receiver_number'] == LocalStore.personalNumber))
+              (m['sender_number'] == me && m['receiver_number'] == peer) ||
+              (m['sender_number'] == peer && m['receiver_number'] == me))
           .toList();
     }
     if (!mounted) return;
@@ -1087,10 +1173,10 @@ class _Screen5ChatState extends State<Screen5Chat> {
       'content': t,
       'message_type': 'text',
       'is_read': false,
-      'created_at': DateTime.now().toIso8601String(),
+      'created_at': DateTime.now().toUtc().toIso8601String(),
     };
     try {
-      await supabase.from('messages').insert(msg);
+      await ApiClient.insertRow('messages', msg);
     } catch (_) {}
     LocalStore.messages.add(msg);
     await _load();
@@ -1110,10 +1196,10 @@ class _Screen5ChatState extends State<Screen5Chat> {
       'message_type': 'image',
       'image_path': f.path,
       'is_read': false,
-      'created_at': DateTime.now().toIso8601String(),
+      'created_at': DateTime.now().toUtc().toIso8601String(),
     };
     try {
-      await supabase.from('messages').insert({
+      await ApiClient.insertRow('messages', {
         'sender_number': LocalStore.personalNumber,
         'receiver_number': widget.friendNumber,
         'content': '[صورة]',
