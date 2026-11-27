@@ -37,6 +37,11 @@ jobs:
         run: |
           sed -i 's/android:label="[^"]*"/android:label="شلونكم چات - IQ"/' android/app/src/main/AndroidManifest.xml
 
+      - name: Add INTERNET permission (required in release builds)
+        run: |
+          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+          grep -n "INTERNET" android/app/src/main/AndroidManifest.xml
+
       - name: Fix NDK
         run: |
           sed -i 's/ndkVersion = .*/ndkVersion = "27.0.12077973"/' android/app/build.gradle.kts
