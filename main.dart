@@ -164,7 +164,7 @@ class _Screen1RegisterState extends State<Screen1Register> {
       if (_msg.isNotEmpty) Text(_msg, style: const TextStyle(color: Colors.red), textAlign: TextAlign.center),
       const SizedBox(height: 24),
       const CreatorWatermark(),
-    ]))))));
+    ])))));
   }
 }
 class Screen2PersonalNumber extends StatelessWidget {
@@ -183,7 +183,7 @@ class Screen2PersonalNumber extends StatelessWidget {
       SizedBox(width: double.infinity, height: 52, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: kRoyal, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))), onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const Screen3Profile())), child: const Text('ادخل', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)))),
       const Spacer(),
       const CreatorWatermark(),
-    ]))))]));
+    ])))]));
   }
 }
 class Screen3Profile extends StatefulWidget {
