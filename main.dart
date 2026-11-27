@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,6 +29,16 @@ Future<void> main() async {
 }
 
 class ApiClient {
+  // آخر عنوان نجح الاتصال به، يُجرَّب اولا في الطلبات التالية
+  static int _preferred = 0;
+  static int get preferredIndex => _preferred;
+
+  static List<int> get _order => [
+        _preferred,
+        ...List.generate(kApiBaseUrls.length, (i) => i)
+            .where((i) => i != _preferred),
+      ];
+
   static Map<String, String> get _headers => {
         'apikey': kApiAnonKey,
         'Authorization': 'Bearer $kApiAnonKey',
@@ -40,6 +52,9 @@ class ApiClient {
     return u.replace(queryParameters: query);
   }
 
+  static String imageUrl(String name, int baseIndex) =>
+      '${kApiBaseUrls[baseIndex]}/storage/v1/object/public/iq-images/$name';
+
   // يجرب العناوين بالترتيب، وينتقل للتالي فقط عند فشل الشبكة
   static Future<http.Response> _request(
     String method,
@@ -48,7 +63,8 @@ class ApiClient {
     Object? body,
   }) async {
     final errors = <String>[];
-    for (final base in kApiBaseUrls) {
+    for (final i in _order) {
+      final base = kApiBaseUrls[i];
       try {
         final uri = _uri(base, table, query);
         final Future<http.Response> req;
@@ -59,7 +75,9 @@ class ApiClient {
         } else {
           req = http.patch(uri, headers: _headers, body: jsonEncode(body));
         }
-        return await req.timeout(const Duration(seconds: 12));
+        final res = await req.timeout(const Duration(seconds: 10));
+        _preferred = i;
+        return res;
       } catch (e) {
         errors.add('[$base] $e');
       }
@@ -93,6 +111,40 @@ class ApiClient {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('HTTP ${res.statusCode}: ${res.body}');
     }
+  }
+
+  // رفع صورة الى Supabase Storage وارجاع اسم الملف
+  static Future<String> uploadImage(File file) async {
+    final bytes = await file.readAsBytes();
+    final isPng = file.path.toLowerCase().endsWith('.png');
+    final ext = isPng ? 'png' : 'jpg';
+    final name =
+        '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(99999)}.$ext';
+    final errors = <String>[];
+    for (final i in _order) {
+      final base = kApiBaseUrls[i];
+      try {
+        final res = await http
+            .post(
+              Uri.parse('$base/storage/v1/object/iq-images/$name'),
+              headers: {
+                'apikey': kApiAnonKey,
+                'Authorization': 'Bearer $kApiAnonKey',
+                'Content-Type': isPng ? 'image/png' : 'image/jpeg',
+              },
+              body: bytes,
+            )
+            .timeout(const Duration(seconds: 45));
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          _preferred = i;
+          return name;
+        }
+        errors.add('[$base] HTTP ${res.statusCode}: ${res.body}');
+      } catch (e) {
+        errors.add('[$base] $e');
+      }
+    }
+    throw Exception(errors.join('\n'));
   }
 }
 
@@ -868,6 +920,65 @@ class _Screen3ProfileState extends State<Screen3Profile> {
   }
 }
 
+class RemoteImage extends StatefulWidget {
+  final String name;
+  final double? width;
+  final double? height;
+  final BoxFit fit;
+
+  const RemoteImage({
+    super.key,
+    required this.name,
+    this.width,
+    this.height,
+    this.fit = BoxFit.cover,
+  });
+
+  @override
+  State<RemoteImage> createState() => _RemoteImageState();
+}
+
+class _RemoteImageState extends State<RemoteImage> {
+  int _tries = 0;
+  late final int _start = ApiClient.preferredIndex;
+
+  Widget _box(Widget child) => SizedBox(
+        width: widget.width,
+        height: widget.height ?? 100,
+        child: Center(child: child),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final idx = (_start + _tries) % kApiBaseUrls.length;
+    return Image.network(
+      ApiClient.imageUrl(widget.name, idx),
+      key: ValueKey('${widget.name}_$idx'),
+      width: widget.width,
+      height: widget.height,
+      fit: widget.fit,
+      loadingBuilder: (c, child, p) =>
+          p == null ? child : _box(const CircularProgressIndicator(strokeWidth: 2)),
+      errorBuilder: (c, e, s) {
+        if (_tries < kApiBaseUrls.length - 1) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _tries < kApiBaseUrls.length - 1) {
+              setState(() => _tries++);
+            }
+          });
+          return _box(const CircularProgressIndicator(strokeWidth: 2));
+        }
+        return Container(
+          width: widget.width,
+          height: widget.height ?? 100,
+          color: Colors.black12,
+          child: const Center(child: Icon(Icons.broken_image)),
+        );
+      },
+    );
+  }
+}
+
 class Screen4Contacts extends StatefulWidget {
   const Screen4Contacts({super.key});
 
@@ -878,49 +989,115 @@ class Screen4Contacts extends StatefulWidget {
 class _Screen4ContactsState extends State<Screen4Contacts> {
   List _contacts = [];
   bool _loading = true;
+  bool _inChat = false;
+  bool _busy = false;
+  int _prevUnread = -1;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!_inChat && !_busy) _load(silent: true);
+    });
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _notifyNew() {
+    HapticFeedback.vibrate();
+    SystemSound.play(SystemSoundType.click);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('وصلتك رسالة جديدة'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (_busy) return;
+    _busy = true;
+    if (!silent && mounted) setState(() => _loading = true);
+    final me = LocalStore.personalNumber;
     try {
       final res = await ApiClient.getRows('contacts', {
         'select': 'friend_number',
-        'owner_number': 'eq.${LocalStore.personalNumber}',
+        'owner_number': 'eq.$me',
       });
-      if (res.isNotEmpty) {
-        final nums = res
-            .map((e) => (e['friend_number'] ?? '').toString().trim())
-            .where((n) => n.isNotEmpty)
-            .toList();
-        final merged = [];
-        for (final n in nums) {
-          final profs = await ApiClient.getRows('profiles', {
-            'select': 'name,personal_number,is_online,status',
-            'personal_number': 'eq.$n',
-            'limit': '1',
-          });
-          final p = profs.isNotEmpty ? profs[0] : null;
-          merged.add({
-            'name': (p?['name'] ?? 'صديق').toString(),
-            'friend_number': n,
-            'is_online': p?['is_online'] == true,
-            'status': (p?['status'] ?? '').toString(),
-          });
-        }
-        _contacts = merged;
-        LocalStore.contacts = merged;
-        await LocalStore.save();
-      } else {
-        _contacts = List.from(LocalStore.contacts);
+      final nums = <String>[];
+      for (final e in res) {
+        final n = (e['friend_number'] ?? '').toString().trim();
+        if (n.isNotEmpty && !nums.contains(n)) nums.add(n);
       }
+
+      // الرسائل غير المقروءة (للعداد وللتعرف على من راسلني ولم اضفه)
+      final unreadRows = await ApiClient.getRows('messages', {
+        'select': 'sender_number',
+        'receiver_number': 'eq.$me',
+        'is_read': 'eq.false',
+      });
+      final counts = <String, int>{};
+      for (final r in unreadRows) {
+        final s = (r['sender_number'] ?? '').toString();
+        if (s.isNotEmpty) counts[s] = (counts[s] ?? 0) + 1;
+      }
+      for (final s in counts.keys) {
+        if (!nums.contains(s)) {
+          nums.add(s);
+          try {
+            await ApiClient.insertRow('contacts', {
+              'owner_number': me,
+              'friend_number': s,
+            });
+          } catch (_) {}
+        }
+      }
+
+      final profMap = <String, Map>{};
+      if (nums.isNotEmpty) {
+        final profs = await ApiClient.getRows('profiles', {
+          'select': 'name,personal_number,is_online,status',
+          'personal_number': 'in.(${nums.join(',')})',
+        });
+        for (final p in profs) {
+          profMap[(p['personal_number'] ?? '').toString()] =
+              Map.from(p as Map);
+        }
+      }
+
+      final merged = [];
+      for (final n in nums) {
+        final p = profMap[n];
+        merged.add({
+          'name': (p?['name'] ?? 'صديق').toString(),
+          'friend_number': n,
+          'is_online': p?['is_online'] == true,
+          'status': (p?['status'] ?? '').toString(),
+          'unread': counts[n] ?? 0,
+        });
+      }
+      merged.sort(
+        (a, b) => (b['unread'] as int).compareTo(a['unread'] as int),
+      );
+      _contacts = merged;
+      LocalStore.contacts = merged;
+      await LocalStore.save();
+
+      final total = counts.values.fold<int>(0, (a, b) => a + b);
+      if (_prevUnread >= 0 && total > _prevUnread && mounted) {
+        _notifyNew();
+      }
+      _prevUnread = total;
     } catch (_) {
-      _contacts = List.from(LocalStore.contacts);
+      if (_contacts.isEmpty) _contacts = List.from(LocalStore.contacts);
     }
+    _busy = false;
     if (!mounted) return;
     setState(() => _loading = false);
   }
@@ -1022,24 +1199,19 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
     );
     if (confirm != true) return;
 
-    final newContact = {
-      'name': name,
-      'personal_number': result,
-      'friend_number': result,
-      'is_online': found['is_online'] == true,
-      'status': (found['status'] ?? '').toString(),
-    };
+    // اضافة متبادلة: انت تضيفه وهو يضيفك تلقائيا ليتمكن من مراسلتك
     try {
       await ApiClient.insertRow('contacts', {
         'owner_number': LocalStore.personalNumber,
         'friend_number': result,
       });
     } catch (_) {}
-    final already = LocalStore.contacts.any((c) =>
-        (c['friend_number'] ?? c['personal_number'] ?? '').toString() ==
-        result);
-    if (!already) LocalStore.contacts.add(newContact);
-    await LocalStore.save();
+    try {
+      await ApiClient.insertRow('contacts', {
+        'owner_number': result,
+        'friend_number': LocalStore.personalNumber,
+      });
+    } catch (_) {}
     await _load();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1081,6 +1253,7 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
                             (f['friend_number'] ?? f['personal_number'] ?? '')
                                 .toString();
                         final online = f['is_online'] == true;
+                        final unread = (f['unread'] ?? 0) as int;
                         return Card(
                           margin: const EdgeInsets.symmetric(
                             horizontal: 14,
@@ -1118,20 +1291,43 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
                             ),
                             subtitle:
                                 Text(num, textDirection: TextDirection.ltr),
-                            trailing: const Icon(
-                              Icons.chat_bubble_outline,
-                              color: kRoyal,
-                            ),
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => Screen5Chat(
-                                  friendName: name,
-                                  friendNumber: num,
-                                  isOnline: online,
+                            trailing: unread > 0
+                                ? Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red,
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Text(
+                                      '$unread',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.chat_bubble_outline,
+                                    color: kRoyal,
+                                  ),
+                            onTap: () async {
+                              _inChat = true;
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => Screen5Chat(
+                                    friendName: name,
+                                    friendNumber: num,
+                                    isOnline: online,
+                                  ),
                                 ),
-                              ),
-                            ),
+                              );
+                              _inChat = false;
+                              _load(silent: true);
+                            },
                           ),
                         );
                       },
@@ -1167,8 +1363,13 @@ class Screen5Chat extends StatefulWidget {
 
 class _Screen5ChatState extends State<Screen5Chat> {
   final _ctrl = TextEditingController();
+  final _scroll = ScrollController();
   List _msgs = [];
+  final List _pending = [];
   bool _showStickers = false;
+  bool _busy = false;
+  int _prevIncoming = -1;
+  Timer? _timer;
   final List _emojis = [
     '😀', '😂', '❤️', '😍', '👍', '🙏', '🇮🇶', '☕', '🍵', '⚽', '🎉', '😢', '😡', '👋'
   ];
@@ -1180,12 +1381,27 @@ class _Screen5ChatState extends State<Screen5Chat> {
   void initState() {
     super.initState();
     _load();
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) => _load());
   }
 
   @override
   void dispose() {
+    _timer?.cancel();
     _ctrl.dispose();
+    _scroll.dispose();
     super.dispose();
+  }
+
+  void _scrollToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   Future<void> _markRead() async {
@@ -1203,7 +1419,8 @@ class _Screen5ChatState extends State<Screen5Chat> {
   }
 
   Future<void> _load() async {
-    await _markRead();
+    if (_busy) return;
+    _busy = true;
     final me = LocalStore.personalNumber;
     final peer = widget.friendNumber;
     try {
@@ -1213,36 +1430,66 @@ class _Screen5ChatState extends State<Screen5Chat> {
             '(and(sender_number.eq.$me,receiver_number.eq.$peer),and(sender_number.eq.$peer,receiver_number.eq.$me))',
         'order': 'created_at.asc',
       });
+      final incoming = res.where((m) => m['sender_number'] == peer).length;
+      final hasNew = _prevIncoming >= 0 && incoming > _prevIncoming;
+      final changed = res.length != _msgs.length;
+      _prevIncoming = incoming;
       _msgs = res;
+      final hasUnread = res.any(
+        (m) => m['sender_number'] == peer && m['is_read'] != true,
+      );
+      if (hasUnread) _markRead();
+      if (hasNew) {
+        HapticFeedback.lightImpact();
+        SystemSound.play(SystemSoundType.click);
+      }
+      if (mounted) {
+        setState(() {});
+        if (changed) _scrollToEnd();
+      }
     } catch (_) {
-      _msgs = LocalStore.messages
-          .where((m) =>
-              (m['sender_number'] == me && m['receiver_number'] == peer) ||
-              (m['sender_number'] == peer && m['receiver_number'] == me))
-          .toList();
+      if (_msgs.isEmpty) {
+        _msgs = LocalStore.messages
+            .where((m) =>
+                (m['sender_number'] == me && m['receiver_number'] == peer) ||
+                (m['sender_number'] == peer && m['receiver_number'] == me))
+            .toList();
+        if (mounted) setState(() {});
+      }
     }
-    if (!mounted) return;
-    setState(() {});
+    _busy = false;
   }
 
   Future<void> _sendText(String text) async {
     final t = text.trim();
     if (t.isEmpty) return;
     _ctrl.clear();
-    setState(() => _showStickers = false);
     final msg = {
       'sender_number': LocalStore.personalNumber,
       'receiver_number': widget.friendNumber,
       'content': t,
       'message_type': 'text',
       'is_read': false,
-      'created_at': DateTime.now().toUtc().toIso8601String(),
     };
+    setState(() {
+      _showStickers = false;
+      _pending.add(msg);
+    });
+    _scrollToEnd();
     try {
       await ApiClient.insertRow('messages', msg);
-    } catch (_) {}
-    LocalStore.messages.add(msg);
-    await LocalStore.save();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 6),
+            content: Text('تعذر ارسال الرسالة\n$e'),
+          ),
+        );
+      }
+    }
+    _pending.remove(msg);
+    _busy = false;
     await _load();
   }
 
@@ -1251,6 +1498,7 @@ class _Screen5ChatState extends State<Screen5Chat> {
     final f = await picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 60,
+      maxWidth: 1280,
     );
     if (f == null) return;
     final msg = {
@@ -1258,45 +1506,72 @@ class _Screen5ChatState extends State<Screen5Chat> {
       'receiver_number': widget.friendNumber,
       'content': '[صورة]',
       'message_type': 'image',
-      'image_path': f.path,
+      'local_path': f.path,
       'is_read': false,
-      'created_at': DateTime.now().toUtc().toIso8601String(),
     };
+    setState(() => _pending.add(msg));
+    _scrollToEnd();
     try {
+      final name = await ApiClient.uploadImage(File(f.path));
       await ApiClient.insertRow('messages', {
         'sender_number': LocalStore.personalNumber,
         'receiver_number': widget.friendNumber,
         'content': '[صورة]',
         'message_type': 'image',
-        'image_path': f.path,
+        'image_path': name,
         'is_read': false,
       });
-    } catch (_) {}
-    LocalStore.messages.add(msg);
-    await LocalStore.save();
-    await _load();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إرسال الصورة')),
-      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 8),
+            content: Text('تعذر ارسال الصورة\n$e'),
+          ),
+        );
+      }
     }
+    _pending.remove(msg);
+    _busy = false;
+    await _load();
   }
 
-  void _openImage(String? path) {
-    if (path == null || path.isEmpty) return;
+  Widget _imageOf(Map m, {double? w, double? h, BoxFit fit = BoxFit.cover}) {
+    final local = (m['local_path'] ?? '').toString();
+    final remote = (m['image_path'] ?? '').toString();
+    if (local.isNotEmpty && File(local).existsSync()) {
+      return Image.file(File(local), width: w, height: h, fit: fit);
+    }
+    if (remote.isNotEmpty && !remote.startsWith('/')) {
+      return RemoteImage(name: remote, width: w, height: h, fit: fit);
+    }
+    if (remote.startsWith('/') && File(remote).existsSync()) {
+      return Image.file(File(remote), width: w, height: h, fit: fit);
+    }
+    return Container(
+      width: w ?? 180,
+      height: h ?? 100,
+      color: Colors.black12,
+      child: const Center(
+        child: Text('الصورة غير متاحة', style: TextStyle(fontSize: 12)),
+      ),
+    );
+  }
+
+  void _openImage(Map m) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => Scaffold(
+          backgroundColor: Colors.black,
           appBar: AppBar(
             title: const Text('الصورة'),
             backgroundColor: kRoyal,
             foregroundColor: Colors.white,
           ),
           body: Center(
-            child: Image.file(
-              File(path),
-              errorBuilder: (c, e, s) => const Text('لا يمكن فتح الصورة'),
+            child: InteractiveViewer(
+              child: _imageOf(m, fit: BoxFit.contain),
             ),
           ),
         ),
@@ -1333,6 +1608,7 @@ class _Screen5ChatState extends State<Screen5Chat> {
 
   @override
   Widget build(BuildContext context) {
+    final shown = [..._msgs, ..._pending];
     return Scaffold(
       backgroundColor: kBeige,
       appBar: AppBar(
@@ -1370,16 +1646,6 @@ class _Screen5ChatState extends State<Screen5Chat> {
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.call),
-            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('جار الاتصال... - المكالمة الصوتية مرحلة ثانية'),
-              ),
-            ),
-          ),
-        ],
       ),
       body: Stack(
         children: [
@@ -1387,14 +1653,15 @@ class _Screen5ChatState extends State<Screen5Chat> {
           Column(
             children: [
               Expanded(
-                child: _msgs.isEmpty
+                child: shown.isEmpty
                     ? const Center(
                         child: Text('لا توجد رسائل بعد - ابدا المحادثة'),
                       )
                     : ListView.builder(
-                        itemCount: _msgs.length,
+                        controller: _scroll,
+                        itemCount: shown.length,
                         itemBuilder: (c, i) {
-                          final m = _msgs[i];
+                          final m = shown[i];
                           final isMine =
                               m['sender_number'] == LocalStore.personalNumber;
                           final isImage = m['message_type'] == 'image';
@@ -1423,48 +1690,22 @@ class _Screen5ChatState extends State<Screen5Chat> {
                                 children: [
                                   if (isImage)
                                     GestureDetector(
-                                      onTap: () => _openImage(
-                                        m['image_path']?.toString(),
-                                      ),
+                                      onTap: () => _openImage(m),
                                       child: ClipRRect(
                                         borderRadius: BorderRadius.circular(10),
-                                        child: (m['image_path'] != null &&
-                                                m['image_path']
-                                                    .toString()
-                                                    .isNotEmpty)
-                                            ? Image.file(
-                                                File(m['image_path'].toString()),
-                                                width: 180,
-                                                height: 140,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (cc, e, s) =>
-                                                    Container(
-                                                  width: 180,
-                                                  height: 100,
-                                                  color: Colors.black12,
-                                                  child: const Center(
-                                                    child: Icon(Icons.image),
-                                                  ),
-                                                ),
-                                              )
-                                            : Container(
-                                                width: 180,
-                                                height: 100,
-                                                color: Colors.black12,
-                                                child: const Center(
-                                                  child: Text('اضغط لفتح الصورة'),
-                                                ),
-                                              ),
+                                        child: _imageOf(m, w: 180, h: 140),
                                       ),
                                     ),
                                   if (isImage) const SizedBox(height: 4),
-                                  Text(
-                                    (m['content'] ?? '').toString(),
-                                    style: TextStyle(
-                                      color:
-                                          isMine ? Colors.white : Colors.black87,
+                                  if (!isImage)
+                                    Text(
+                                      (m['content'] ?? '').toString(),
+                                      style: TextStyle(
+                                        color: isMine
+                                            ? Colors.white
+                                            : Colors.black87,
+                                      ),
                                     ),
-                                  ),
                                   const SizedBox(height: 4),
                                   _readIcon(m),
                                 ],
@@ -1545,10 +1786,6 @@ class _Screen5ChatState extends State<Screen5Chat> {
                       ),
                       onPressed: () =>
                           setState(() => _showStickers = !_showStickers),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.attach_file, color: kRoyal),
-                      onPressed: _sendImage,
                     ),
                     IconButton(
                       icon: const Icon(Icons.image, color: kRoyal),
