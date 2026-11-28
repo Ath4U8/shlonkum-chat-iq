@@ -5,11 +5,13 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:vibration/vibration.dart';
 
 // عناوين الخادم بالترتيب: الوسيط (Cloudflare Worker) اولا ثم Supabase مباشرة
@@ -158,7 +160,7 @@ class ArchFrame extends StatelessWidget {
               padding: const EdgeInsets.all(3.5),
               child: ClipPath(
                 clipper: ArchClipper(),
-                child: Container(color: const Color(0xFFFDFBF4), child: child),
+                child: Container(color: Colors.white, child: child),
               ),
             ),
           ),
@@ -525,6 +527,97 @@ class ApiClient {
       }
     }
     throw Exception(errors.join('\n'));
+  }
+
+  static const int maxFileBytes = 50 * 1024 * 1024;
+
+  static String _mime(String ext) {
+    const m = {
+      'pdf': 'application/pdf',
+      'doc': 'application/msword',
+      'docx':
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'xls': 'application/vnd.ms-excel',
+      'xlsx':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'ppt': 'application/vnd.ms-powerpoint',
+      'pptx':
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'txt': 'text/plain',
+      'csv': 'text/csv',
+      'zip': 'application/zip',
+      'mp3': 'audio/mpeg',
+      'm4a': 'audio/mp4',
+      'aac': 'audio/aac',
+      'wav': 'audio/wav',
+      'ogg': 'audio/ogg',
+      'opus': 'audio/opus',
+      'amr': 'audio/amr',
+      'mp4': 'video/mp4',
+      'mov': 'video/quicktime',
+      'mkv': 'video/x-matroska',
+      '3gp': 'video/3gpp',
+      'webm': 'video/webm',
+    };
+    return m[ext] ?? 'application/octet-stream';
+  }
+
+  // رفع ملف (مستند / صوت / فيديو) وارجاع "المخزن/اسم الملف"
+  static Future<String> uploadFile(File file, String originalName) async {
+    final bytes = await file.readAsBytes();
+    var ext = originalName.contains('.')
+        ? originalName.split('.').last.toLowerCase()
+        : 'bin';
+    ext = ext.replaceAll(RegExp(r'[^a-z0-9]'), '');
+    if (ext.isEmpty || ext.length > 8) ext = 'bin';
+    final name =
+        '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(99999)}.$ext';
+    final errors = <String>[];
+    for (final bucket in ['iq-files', 'iq-images']) {
+      var reached = false;
+      for (final i in _order) {
+        final base = kApiBaseUrls[i];
+        try {
+          final res = await http
+              .post(
+                Uri.parse('$base/storage/v1/object/$bucket/$name'),
+                headers: {
+                  'apikey': kApiAnonKey,
+                  'Authorization': 'Bearer $kApiAnonKey',
+                  'Content-Type': _mime(ext),
+                },
+                body: bytes,
+              )
+              .timeout(const Duration(seconds: 180));
+          reached = true;
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            _preferred = i;
+            return '$bucket/$name';
+          }
+          errors.add('[$base/$bucket] HTTP ${res.statusCode}: ${res.body}');
+        } catch (e) {
+          errors.add('[$base/$bucket] $e');
+        }
+      }
+      if (!reached) break;
+    }
+    throw Exception(errors.join('\n'));
+  }
+
+  // اول عنوان يعمل لتنزيل الملف
+  static Future<String> resolveFileUrl(String path) async {
+    var first = '';
+    for (final i in _order) {
+      final url = '${kApiBaseUrls[i]}/storage/v1/object/public/$path';
+      if (first.isEmpty) first = url;
+      try {
+        final r = await http
+            .get(Uri.parse(url), headers: {'Range': 'bytes=0-0'})
+            .timeout(const Duration(seconds: 8));
+        if (r.statusCode == 200 || r.statusCode == 206) return url;
+      } catch (_) {}
+    }
+    return first;
   }
 }
 
@@ -1253,6 +1346,7 @@ class _Screen1RegisterState extends State<Screen1Register> {
                 borderRadius:
                     const BorderRadius.vertical(bottom: Radius.circular(40)),
                 child: Stack(
+                  alignment: Alignment.topCenter,
                   children: [
                     const GeoPattern(),
                     Positioned(
@@ -1274,7 +1368,7 @@ class _Screen1RegisterState extends State<Screen1Register> {
                               width: 120,
                               height: 140,
                               child: Padding(
-                                padding: const EdgeInsets.all(16),
+                                padding: const EdgeInsets.fromLTRB(9, 24, 9, 9),
                                 child: Image.asset(
                                   'assets/iraq_map.png',
                                   fit: BoxFit.contain,
@@ -1297,8 +1391,33 @@ class _Screen1RegisterState extends State<Screen1Register> {
                             ),
                             const SizedBox(height: 2),
                             const Text(
-                              'تطبيق تواصل عراقي لكل العراق',
-                              style: TextStyle(fontSize: 15, color: kGoldLight),
+                              'تطبيق تواصل اجتماعي عراقي',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: kGoldLight,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            const FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                'سجل بدون رقم تلفون او ايميل واحصل على رقم شخصي',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.4,
+                                  color: Colors.white,
+                                  shadows: [
+                                    Shadow(
+                                      color: Color(0x66000000),
+                                      blurRadius: 4,
+                                      offset: Offset(0, 1),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -1425,7 +1544,7 @@ class Screen2PersonalNumber extends StatelessWidget {
                       border: Border.all(color: Colors.red.withOpacity(0.3)),
                     ),
                     child: const Text(
-                      'هذا يعتبر رقمك الشخصي احفظه جيدا من خلاله تضيف جهات الاتصال لديك ويضيفونك وغير قابل للتغيير',
+                      'احفظ رقمك الشخصي فمن خلاله تضيف جهات اتصالك ويضيفونك',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -1506,7 +1625,8 @@ class Screen2PersonalNumber extends StatelessWidget {
 }
 
 class Screen3Profile extends StatefulWidget {
-  const Screen3Profile({super.key});
+  final bool edit;
+  const Screen3Profile({super.key, this.edit = false});
 
   @override
   State<Screen3Profile> createState() => _Screen3ProfileState();
@@ -1514,6 +1634,7 @@ class Screen3Profile extends StatefulWidget {
 
 class _Screen3ProfileState extends State<Screen3Profile> {
   final _status = TextEditingController();
+  final _nameCtrl = TextEditingController();
   bool _loading = false;
   XFile? _picked;
 
@@ -1521,11 +1642,13 @@ class _Screen3ProfileState extends State<Screen3Profile> {
   void initState() {
     super.initState();
     _status.text = LocalStore.status;
+    _nameCtrl.text = LocalStore.name;
   }
 
   @override
   void dispose() {
     _status.dispose();
+    _nameCtrl.dispose();
     super.dispose();
   }
 
@@ -1548,18 +1671,47 @@ class _Screen3ProfileState extends State<Screen3Profile> {
   }
 
   Future<void> _save() async {
+    String newName = LocalStore.name;
+    if (widget.edit) {
+      newName = _nameCtrl.text.trim();
+      if (newName.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('اكتب اسم المستخدم')),
+        );
+        return;
+      }
+    }
     setState(() => _loading = true);
-    LocalStore.status = _status.text.trim();
+    final status = _status.text.trim();
+    final body = <String, dynamic>{'status': status};
+    if (widget.edit) body['name'] = newName;
+    bool ok = true;
     try {
       await ApiClient.updateRows(
         'profiles',
         {'personal_number': 'eq.${LocalStore.personalNumber}'},
-        {'status': LocalStore.status},
+        body,
       );
-    } catch (_) {}
+    } catch (_) {
+      ok = false;
+    }
+    if (widget.edit && !ok) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر الحفظ، تحقق من الاتصال بالانترنت')),
+      );
+      return;
+    }
+    LocalStore.status = status;
+    if (widget.edit) LocalStore.name = newName;
     await LocalStore.save();
     if (!mounted) return;
     setState(() => _loading = false);
+    if (widget.edit) {
+      Navigator.pop(context, true);
+      return;
+    }
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const Screen4Contacts()),
@@ -1573,9 +1725,9 @@ class _Screen3ProfileState extends State<Screen3Profile> {
     return Scaffold(
       backgroundColor: kBeige,
       appBar: iqAppBar(
-        title: const Text(
-          'انشاء ملفك الشخصي',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Text(
+          widget.edit ? 'تعديل الملف الشخصي' : 'انشاء ملفك الشخصي',
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
       body: Stack(
@@ -1644,14 +1796,26 @@ class _Screen3ProfileState extends State<Screen3Profile> {
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        Text(
-                          LocalStore.name,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: kRoyal,
-                          ),
-                        ),
+                        widget.edit
+                            ? TextField(
+                                controller: _nameCtrl,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: kRoyal,
+                                ),
+                                decoration:
+                                    iqInput('اسم المستخدم ( عربي او انكليزي )'),
+                              )
+                            : Text(
+                                LocalStore.name,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: kRoyal,
+                                ),
+                              ),
                         const SizedBox(height: 4),
                         Text(
                           LocalStore.personalNumber,
@@ -2387,6 +2551,383 @@ class _Screen4ContactsState extends State<Screen4Contacts>
 
 // ===================== شاشة المحادثة (فردية او مجموعة) =====================
 
+// ===================== المرفقات (مستندات / صوت / فيديو) =====================
+String fmtSize(int b) {
+  if (b < 1024) return '$b B';
+  if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(0)} KB';
+  return '${(b / 1024 / 1024).toStringAsFixed(1)} MB';
+}
+
+String fmtDur(Duration d) {
+  final m = d.inMinutes;
+  final sec = d.inSeconds % 60;
+  return '$m:${sec.toString().padLeft(2, '0')}';
+}
+
+IconData fileIconFor(String name, String type) {
+  if (type == 'audio') return Icons.audiotrack;
+  if (type == 'video') return Icons.videocam;
+  final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
+  switch (ext) {
+    case 'pdf':
+      return Icons.picture_as_pdf;
+    case 'doc':
+    case 'docx':
+    case 'txt':
+      return Icons.description;
+    case 'xls':
+    case 'xlsx':
+    case 'csv':
+      return Icons.table_chart;
+    case 'zip':
+    case 'rar':
+      return Icons.folder_zip;
+    default:
+      return Icons.insert_drive_file;
+  }
+}
+
+class AttachmentBubble extends StatefulWidget {
+  final Map m;
+  final String type;
+  final bool isMine;
+  const AttachmentBubble({
+    super.key,
+    required this.m,
+    required this.type,
+    required this.isMine,
+  });
+
+  @override
+  State<AttachmentBubble> createState() => _AttachmentBubbleState();
+}
+
+class _AttachmentBubbleState extends State<AttachmentBubble> {
+  AudioPlayer? _p;
+  bool _playing = false;
+  bool _loading = false;
+  Duration _pos = Duration.zero;
+  Duration _dur = Duration.zero;
+
+  String get _remote => (widget.m['image_path'] ?? '').toString();
+  String get _name {
+    final parts = (widget.m['content'] ?? '').toString().split('||');
+    return parts.isEmpty || parts[0].isEmpty ? 'ملف' : parts[0];
+  }
+
+  int get _size {
+    final parts = (widget.m['content'] ?? '').toString().split('||');
+    return parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
+  }
+
+  @override
+  void dispose() {
+    _p?.dispose();
+    super.dispose();
+  }
+
+  void _snack(String t) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
+  }
+
+  Future<void> _openExternal() async {
+    if (_remote.isEmpty) return;
+    setState(() => _loading = true);
+    try {
+      final url = await ApiClient.resolveFileUrl(_remote);
+      final ok = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!ok) _snack('لا يوجد تطبيق يفتح هذا الملف');
+    } catch (e) {
+      _snack('تعذر فتح الملف');
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _toggleAudio() async {
+    if (_remote.isEmpty) return;
+    try {
+      if (_p == null) {
+        setState(() => _loading = true);
+        final url = await ApiClient.resolveFileUrl(_remote);
+        final p = AudioPlayer();
+        _p = p;
+        p.onPlayerStateChanged.listen((st) {
+          if (mounted) setState(() => _playing = st == PlayerState.playing);
+        });
+        p.onPositionChanged.listen((d) {
+          if (mounted) setState(() => _pos = d);
+        });
+        p.onDurationChanged.listen((d) {
+          if (mounted) setState(() => _dur = d);
+        });
+        p.onPlayerComplete.listen((_) {
+          if (mounted) setState(() => _pos = Duration.zero);
+        });
+        await p.play(UrlSource(url));
+        if (mounted) setState(() => _loading = false);
+      } else if (_playing) {
+        await _p!.pause();
+      } else {
+        await _p!.resume();
+      }
+    } catch (e) {
+      if (mounted) setState(() => _loading = false);
+      _snack('تعذر تشغيل الملف الصوتي');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = widget.isMine ? Colors.white : kRoyal;
+    final sub = widget.isMine ? Colors.white70 : Colors.black54;
+    final uploading = _remote.isEmpty;
+    final busy = uploading || _loading;
+    final isAudio = widget.type == 'audio';
+
+    final lead = Container(
+      width: 46,
+      height: 46,
+      decoration: BoxDecoration(
+        gradient: kGoldGradient,
+        shape: BoxShape.circle,
+        boxShadow: const [
+          BoxShadow(color: Color(0x33000000), blurRadius: 4, offset: Offset(0, 2)),
+        ],
+      ),
+      child: busy
+          ? const Padding(
+              padding: EdgeInsets.all(12),
+              child: CircularProgressIndicator(
+                strokeWidth: 2.4,
+                color: Colors.white,
+              ),
+            )
+          : Icon(
+              isAudio
+                  ? (_playing ? Icons.pause : Icons.play_arrow)
+                  : fileIconFor(_name, widget.type),
+              color: Colors.white,
+              size: 26,
+            ),
+    );
+
+    final Widget info;
+    if (isAudio) {
+      final prog = _dur.inMilliseconds > 0
+          ? (_pos.inMilliseconds / _dur.inMilliseconds).clamp(0.0, 1.0)
+          : 0.0;
+      info = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: fg, fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+          const SizedBox(height: 6),
+          LinearProgressIndicator(
+            value: prog,
+            minHeight: 4,
+            backgroundColor: sub.withOpacity(0.3),
+            color: kGold,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            uploading
+                ? 'جاري الرفع...'
+                : '${fmtDur(_pos)} / ${_dur == Duration.zero ? fmtSize(_size) : fmtDur(_dur)}',
+            style: TextStyle(color: sub, fontSize: 11),
+          ),
+        ],
+      );
+    } else {
+      info = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: fg, fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            uploading
+                ? 'جاري الرفع...'
+                : '${widget.type == 'video' ? 'فيديو' : 'مستند'} - ${fmtSize(_size)} - اضغط للفتح',
+            style: TextStyle(color: sub, fontSize: 11),
+          ),
+        ],
+      );
+    }
+
+    return GestureDetector(
+      onTap: uploading ? null : (isAudio ? _toggleAudio : _openExternal),
+      child: SizedBox(
+        width: 230,
+        child: Row(
+          children: [
+            lead,
+            const SizedBox(width: 10),
+            Expanded(child: info),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ===================== شاشة الملاحظات =====================
+class NotesScreen extends StatefulWidget {
+  const NotesScreen({super.key});
+
+  @override
+  State<NotesScreen> createState() => _NotesScreenState();
+}
+
+class _NotesScreenState extends State<NotesScreen> {
+  final _ctrl = TextEditingController();
+  double _size = 18;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final p = await SharedPreferences.getInstance();
+    _ctrl.text = p.getString('notes_text') ?? '';
+    _size = p.getDouble('notes_font') ?? 18;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _saveText() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('notes_text', _ctrl.text);
+  }
+
+  Future<void> _setSize(double v) async {
+    final s = v.clamp(12.0, 40.0).toDouble();
+    setState(() => _size = s);
+    final p = await SharedPreferences.getInstance();
+    await p.setDouble('notes_font', s);
+  }
+
+  @override
+  void dispose() {
+    final t = _ctrl.text;
+    SharedPreferences.getInstance().then((p) => p.setString('notes_text', t));
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBeige,
+      appBar: iqAppBar(
+        title: const Text(
+          'ملاحظات',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+      ),
+      body: Stack(
+        children: [
+          const GeoPattern(color: Color(0x0F1B3A8F), cell: 54),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: kGold.withOpacity(0.7)),
+                  ),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.text_decrease, color: kRoyal),
+                        onPressed: () => _setSize(_size - 2),
+                      ),
+                      Expanded(
+                        child: Slider(
+                          min: 12,
+                          max: 40,
+                          divisions: 14,
+                          value: _size,
+                          activeColor: kRoyal,
+                          thumbColor: kGold,
+                          onChanged: _setSize,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.text_increase, color: kRoyal),
+                        onPressed: () => _setSize(_size + 2),
+                      ),
+                      SizedBox(
+                        width: 28,
+                        child: Text(
+                          '${_size.round()}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: kRoyal,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: kGold, width: 1.2),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x1F1B3A8F),
+                          blurRadius: 8,
+                          offset: Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: TextField(
+                      controller: _ctrl,
+                      expands: true,
+                      maxLines: null,
+                      minLines: null,
+                      textAlignVertical: TextAlignVertical.top,
+                      style: TextStyle(fontSize: _size, height: 1.5),
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        hintText: 'اكتب ملاحظاتك هنا...',
+                      ),
+                      onChanged: (_) => _saveText(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class Screen5Chat extends StatefulWidget {
   final String friendName;
   final String friendNumber;
@@ -2637,6 +3178,138 @@ class _Screen5ChatState extends State<Screen5Chat> {
     await _load();
   }
 
+  void _attachMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            _attachTile(c, Icons.insert_drive_file, 'مستند او ملف', 'file'),
+            _attachTile(c, Icons.audiotrack, 'ملف صوتي', 'audio'),
+            _attachTile(c, Icons.videocam, 'فيديو', 'video'),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _attachTile(BuildContext c, IconData icon, String label, String kind) =>
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: kRoyal,
+          child: Icon(icon, color: kGold),
+        ),
+        title: Text(label),
+        onTap: () {
+          Navigator.pop(c);
+          _sendPicked(kind);
+        },
+      );
+
+  Future<void> _sendPicked(String kind) async {
+    FilePickerResult? r;
+    try {
+      if (kind == 'audio') {
+        r = await FilePicker.platform.pickFiles(type: FileType.audio);
+      } else if (kind == 'video') {
+        r = await FilePicker.platform.pickFiles(type: FileType.video);
+      } else {
+        r = await FilePicker.platform.pickFiles(type: FileType.any);
+      }
+    } catch (e) {
+      _snack('تعذر فتح مختار الملفات\n$e', seconds: 6);
+      return;
+    }
+    if (r == null || r.files.isEmpty) return;
+    final f = r.files.first;
+    final path = f.path;
+    if (path == null) {
+      _snack('تعذر قراءة الملف');
+      return;
+    }
+    if (f.size > ApiClient.maxFileBytes) {
+      _snack('حجم الملف ${fmtSize(f.size)} اكبر من الحد المسموح (50 ميغابايت)',
+          seconds: 5);
+      return;
+    }
+    final content = '${f.name}||${f.size}';
+    final msg = {
+      ..._base(kind, content),
+      'local_path': path,
+    };
+    setState(() {
+      _showPanel = false;
+      _pending.add(msg);
+    });
+    _scrollToEnd();
+    try {
+      final stored = await ApiClient.uploadFile(File(path), f.name);
+      final toSend = _base(kind, content);
+      toSend['image_path'] = stored;
+      await ApiClient.insertRow('messages', toSend);
+    } catch (e) {
+      _snack('تعذر ارسال الملف\n$e', seconds: 8);
+    }
+    _pending.remove(msg);
+    _busy = false;
+    await _load();
+  }
+
+  Widget _settingsMenu() => PopupMenuButton<int>(
+        tooltip: 'الاعدادات',
+        icon: const Icon(Icons.settings, color: kGold, size: 22),
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: kGold.withOpacity(0.6)),
+        ),
+        onSelected: (v) async {
+          if (v == 1) {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const Screen3Profile(edit: true),
+              ),
+            );
+            if (mounted) setState(() {});
+          } else {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const NotesScreen()),
+            );
+          }
+        },
+        itemBuilder: (c) => const [
+          PopupMenuItem<int>(
+            value: 1,
+            child: Row(
+              children: [
+                Icon(Icons.person, color: kRoyal, size: 20),
+                SizedBox(width: 10),
+                Text('تعديل الملف الشخصي'),
+              ],
+            ),
+          ),
+          PopupMenuItem<int>(
+            value: 2,
+            child: Row(
+              children: [
+                Icon(Icons.edit_note, color: kRoyal, size: 22),
+                SizedBox(width: 10),
+                Text('ملاحظات'),
+              ],
+            ),
+          ),
+        ],
+      );
+
   // حذف الرسالة من جهة المرسل فقط
   Future<void> _deleteMine(Map m) async {
     final id = m['id'];
@@ -2804,6 +3477,9 @@ class _Screen5ChatState extends State<Screen5Chat> {
         ),
       );
     }
+    if (type == 'file' || type == 'audio' || type == 'video') {
+      return AttachmentBubble(m: m, type: type, isMine: isMine);
+    }
     final content = (m['content'] ?? '').toString();
     if (type == 'sticker') {
       final s = findSticker(content);
@@ -2836,6 +3512,7 @@ class _Screen5ChatState extends State<Screen5Chat> {
         ),
         actions: [
           IconButton(icon: const Icon(Icons.people), onPressed: _showMembers),
+          _settingsMenu(),
         ],
       );
     }
@@ -2873,6 +3550,7 @@ class _Screen5ChatState extends State<Screen5Chat> {
           ),
         ],
       ),
+      actions: [_settingsMenu()],
     );
   }
 
@@ -3003,6 +3681,10 @@ class _Screen5ChatState extends State<Screen5Chat> {
                       IconButton(
                         icon: const Icon(Icons.image_outlined, color: kRoyal),
                         onPressed: _sendImage,
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.attach_file, color: kRoyal),
+                        onPressed: _attachMenu,
                       ),
                       Expanded(
                         child: TextField(
