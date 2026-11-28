@@ -37,10 +37,12 @@ jobs:
         run: |
           sed -i 's/android:label="[^"]*"/android:label="شلونكم چات - IQ"/' android/app/src/main/AndroidManifest.xml
 
-      - name: Add INTERNET permission (required in release builds)
+      - name: Add permissions (internet and vibrate)
         run: |
-          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
-          grep -n "INTERNET" android/app/src/main/AndroidManifest.xml
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q "android.permission.INTERNET" $M || sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' $M
+          grep -q "android.permission.VIBRATE" $M || sed -i 's|<application|<uses-permission android:name="android.permission.VIBRATE"/>\n    <application|' $M
+          grep -n "uses-permission" $M
 
       - name: Fix NDK
         run: |
