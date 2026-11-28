@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vibration/vibration.dart';
 
 // عناوين الخادم بالترتيب: الوسيط (Cloudflare Worker) اولا ثم Supabase مباشرة
 const List<String> kApiBaseUrls = [
@@ -21,7 +24,363 @@ const String kApiAnonKey = 'sb_publishable_nbqpxqvicOkjDlrtQmbrug_J0r557Sv';
 const Color kRoyal = Color(0xFF1B3A8F);
 const Color kTurquoise = Color(0xFF00C2A8);
 const Color kGold = Color(0xFFD9A441);
-const Color kBeige = Color(0xFFF7F5EF);
+const Color kBeige = Color(0xFFFBF7EE);
+
+const Color kNight = Color(0xFF0A1B52);
+const Color kGoldLight = Color(0xFFF3D98B);
+const Color kGoldDeep = Color(0xFFB9852C);
+
+const LinearGradient kHeaderGradient = LinearGradient(
+  begin: Alignment.topRight,
+  end: Alignment.bottomLeft,
+  colors: [kNight, kRoyal, Color(0xFF2450B8)],
+);
+const LinearGradient kGoldGradient = LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [kGoldLight, kGold, kGoldDeep],
+);
+const LinearGradient kMineGradient = LinearGradient(
+  begin: Alignment.topRight,
+  end: Alignment.bottomLeft,
+  colors: [Color(0xFF00C2A8), Color(0xFF008F8C)],
+);
+
+// نمط هندسي عباسي: نجوم ثمانية مرسومة بالكود
+class GeoPatternPainter extends CustomPainter {
+  final Color color;
+  final double cell;
+  GeoPatternPainter({required this.color, this.cell = 46});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8;
+    for (double y = 0; y < size.height + cell; y += cell) {
+      for (double x = 0; x < size.width + cell; x += cell) {
+        _star(canvas, p, Offset(x, y), cell * 0.42);
+      }
+    }
+  }
+
+  void _star(Canvas canvas, Paint p, Offset c, double r) {
+    for (final rot in [0.0, pi / 4]) {
+      final path = Path();
+      for (int i = 0; i < 4; i++) {
+        final a = rot + i * pi / 2 + pi / 4;
+        final pt = Offset(c.dx + r * cos(a), c.dy + r * sin(a));
+        if (i == 0) {
+          path.moveTo(pt.dx, pt.dy);
+        } else {
+          path.lineTo(pt.dx, pt.dy);
+        }
+      }
+      path.close();
+      canvas.drawPath(path, p);
+    }
+    canvas.drawCircle(c, r * 0.28, p);
+  }
+
+  @override
+  bool shouldRepaint(covariant GeoPatternPainter old) =>
+      old.color != color || old.cell != cell;
+}
+
+class GeoPattern extends StatelessWidget {
+  final Color color;
+  final double cell;
+  const GeoPattern({
+    super.key,
+    this.color = const Color(0x1AFFFFFF),
+    this.cell = 46,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: CustomPaint(painter: GeoPatternPainter(color: color, cell: cell)),
+      ),
+    );
+  }
+}
+
+// قوس عراقي مدبب
+class ArchClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size s) {
+    final w = s.width;
+    final h = s.height;
+    final p = Path();
+    p.moveTo(0, h);
+    p.lineTo(0, h * 0.5);
+    p.cubicTo(0, h * 0.25, w * 0.38, h * 0.12, w * 0.5, 0);
+    p.cubicTo(w * 0.62, h * 0.12, w, h * 0.25, w, h * 0.5);
+    p.lineTo(w, h);
+    p.close();
+    return p;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+class ArchFrame extends StatelessWidget {
+  final double width;
+  final double height;
+  final Widget child;
+  const ArchFrame({
+    super.key,
+    required this.width,
+    required this.height,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: ClipPath(
+              clipper: ArchClipper(),
+              child: Container(
+                decoration: const BoxDecoration(gradient: kGoldGradient),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.all(3.5),
+              child: ClipPath(
+                clipper: ArchClipper(),
+                child: Container(color: const Color(0xFFFDFBF4), child: child),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class OrnamentDivider extends StatelessWidget {
+  const OrnamentDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 1.2,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0x00D9A441), kGold],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Transform.rotate(
+            angle: pi / 4,
+            child: Container(width: 8, height: 8, color: kGold),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              height: 1.2,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [kGold, Color(0x00D9A441)],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// بطاقة بإطار ذهبي رفيع وظل ناعم
+class GoldCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsets padding;
+  final EdgeInsets margin;
+  const GoldCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(14),
+    this.margin = EdgeInsets.zero,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: margin,
+      padding: const EdgeInsets.all(1.6),
+      decoration: BoxDecoration(
+        gradient: kGoldGradient,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x261B3A8F),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16.5),
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: Padding(padding: padding, child: child),
+        ),
+      ),
+    );
+  }
+}
+
+class GradientButton extends StatelessWidget {
+  final String label;
+  final VoidCallback? onPressed;
+  final bool loading;
+  const GradientButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.loading = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: onPressed == null ? 0.75 : 1,
+      child: Container(
+        width: double.infinity,
+        height: 54,
+        decoration: BoxDecoration(
+          gradient: kHeaderGradient,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: kGold, width: 1.6),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x401B3A8F),
+              blurRadius: 12,
+              offset: Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onPressed,
+            child: Center(
+              child: loading
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.5,
+                      ),
+                    )
+                  : Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 19,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+PreferredSizeWidget iqAppBar({
+  required Widget title,
+  List<Widget>? actions,
+  PreferredSizeWidget? bottom,
+  bool center = true,
+}) {
+  return AppBar(
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    scrolledUnderElevation: 0,
+    foregroundColor: Colors.white,
+    centerTitle: center,
+    title: title,
+    actions: actions,
+    bottom: bottom,
+    flexibleSpace: Stack(
+      fit: StackFit.expand,
+      children: [
+        Container(decoration: const BoxDecoration(gradient: kHeaderGradient)),
+        const GeoPattern(),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Container(
+            height: 3,
+            decoration: const BoxDecoration(gradient: kGoldGradient),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+InputDecoration iqInput(String hint, {Widget? suffix}) {
+  OutlineInputBorder b(Color c, double w) => OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: c, width: w),
+      );
+  return InputDecoration(
+    hintText: hint,
+    filled: true,
+    fillColor: Colors.white,
+    suffixIcon: suffix,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    border: b(kGold, 1),
+    enabledBorder: b(kGold.withOpacity(0.6), 1),
+    focusedBorder: b(kRoyal, 1.8),
+  );
+}
+
+Widget iqLabel(String t) => Align(
+      alignment: Alignment.centerRight,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(
+          t,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: kRoyal,
+          ),
+        ),
+      ),
+    );
+
+// المدة التي يعتبر بعدها الصديق غير متصل
+const int kOfflineAfterSeconds = 20;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,6 +391,10 @@ class ApiClient {
   // آخر عنوان نجح الاتصال به، يُجرَّب اولا في الطلبات التالية
   static int _preferred = 0;
   static int get preferredIndex => _preferred;
+
+  // فرق الوقت بين ساعة الخادم وساعة هذا الهاتف (من ترويسة Date)
+  static Duration _clockOffset = Duration.zero;
+  static Duration get clockOffset => _clockOffset;
 
   static List<int> get _order => [
         _preferred,
@@ -77,6 +440,13 @@ class ApiClient {
         }
         final res = await req.timeout(const Duration(seconds: 10));
         _preferred = i;
+        final d = res.headers['date'];
+        if (d != null) {
+          try {
+            _clockOffset =
+                HttpDate.parse(d).difference(DateTime.now().toUtc());
+          } catch (_) {}
+        }
         return res;
       } catch (e) {
         errors.add('[$base] $e');
@@ -95,11 +465,21 @@ class ApiClient {
     return [];
   }
 
-  static Future<void> insertRow(String table, Map<String, dynamic> body) async {
+  static Future<void> insertRow(String table, Object body) async {
     final res = await _request('POST', table, null, body: body);
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('HTTP ${res.statusCode}: ${res.body}');
     }
+  }
+
+  // اضافة صف او اكثر وارجاع الصفوف المضافة
+  static Future<List> insertReturning(String table, Object body) async {
+    final res = await _request('POST', table, null, body: body);
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('HTTP ${res.statusCode}: ${res.body}');
+    }
+    final d = jsonDecode(res.body);
+    return d is List ? d : [];
   }
 
   static Future<void> updateRows(
@@ -148,6 +528,126 @@ class ApiClient {
   }
 }
 
+// هل الصديق متصل الان: متصل فقط اذا آخر ظهور له خلال 20 ثانية
+bool presenceOnline(Map? p) {
+  if (p == null) return false;
+  if (p['is_online'] != true) return false;
+  final ls = DateTime.tryParse((p['last_seen'] ?? '').toString());
+  if (ls == null) return false;
+  final now = DateTime.now().toUtc().add(ApiClient.clockOffset);
+  return now.difference(ls.toUtc()).inSeconds < kOfflineAfterSeconds;
+}
+
+// يرسل نبضة كل 5 ثوانٍ وانت داخل التطبيق، ويوقفها عند الخروج منه
+class Presence with WidgetsBindingObserver {
+  static final Presence _i = Presence._();
+  Presence._();
+
+  Timer? _t;
+  bool _started = false;
+
+  static void start() {
+    if (_i._started) return;
+    _i._started = true;
+    WidgetsBinding.instance.addObserver(_i);
+    _i._beat();
+    _i._run();
+  }
+
+  void _run() {
+    _t?.cancel();
+    _t = Timer.periodic(const Duration(seconds: 5), (_) => _beat());
+  }
+
+  Future<void> _beat({bool online = true}) async {
+    final me = LocalStore.personalNumber;
+    if (me.length != 9) return;
+    try {
+      await ApiClient.updateRows(
+        'profiles',
+        {'personal_number': 'eq.$me'},
+        {
+          'is_online': online,
+          'last_seen': DateTime.now().toUtc().toIso8601String(),
+        },
+      );
+    } catch (_) {}
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _beat();
+      _run();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _t?.cancel();
+      _beat(online: false);
+    }
+  }
+}
+
+// صوت واهتزاز عند وصول رسالة (والتطبيق مفتوح)
+class Alerts {
+  static final AudioPlayer _player = AudioPlayer();
+  static Uint8List? _wav;
+
+  // نغمة قصيرة من نوتتين تُولَّد داخل التطبيق بدون ملف صوت
+  static Uint8List _makeWav() {
+    const rate = 22050;
+    final n = (rate * 0.45).toInt();
+    final b = ByteData(44 + n * 2);
+    void tag(int o, String s) {
+      for (var i = 0; i < s.length; i++) {
+        b.setUint8(o + i, s.codeUnitAt(i));
+      }
+    }
+
+    tag(0, 'RIFF');
+    b.setUint32(4, 36 + n * 2, Endian.little);
+    tag(8, 'WAVE');
+    tag(12, 'fmt ');
+    b.setUint32(16, 16, Endian.little);
+    b.setUint16(20, 1, Endian.little);
+    b.setUint16(22, 1, Endian.little);
+    b.setUint32(24, rate, Endian.little);
+    b.setUint32(28, rate * 2, Endian.little);
+    b.setUint16(32, 2, Endian.little);
+    b.setUint16(34, 16, Endian.little);
+    tag(36, 'data');
+    b.setUint32(40, n * 2, Endian.little);
+    for (var i = 0; i < n; i++) {
+      final t = i / rate;
+      final first = t < 0.2;
+      final local = first ? t : t - 0.2;
+      final f = first ? 880.0 : 1318.5;
+      final env = exp(-7 * local);
+      final v = (sin(2 * pi * f * t) * env * 0.7 * 32767).toInt();
+      b.setInt16(44 + i * 2, v, Endian.little);
+    }
+    return b.buffer.asUint8List();
+  }
+
+  static Future<void> ping() async {
+    try {
+      await Vibration.vibrate(duration: 300);
+    } catch (_) {
+      try {
+        await HapticFeedback.vibrate();
+      } catch (_) {}
+    }
+    try {
+      _wav ??= _makeWav();
+      await _player.play(BytesSource(_wav!));
+    } catch (_) {
+      try {
+        await SystemSound.play(SystemSoundType.alert);
+      } catch (_) {}
+    }
+  }
+}
+
 class LocalStore {
   static String name = '';
   static String password = '';
@@ -184,6 +684,229 @@ class LocalStore {
     return personalNumber.length == 9 && name.isNotEmpty;
   }
 }
+
+// آخر رسالة قرأتها في كل مجموعة (لحساب الرسائل غير المقروءة)
+class GroupSeen {
+  static Map<String, int> _m = {};
+  static bool _loaded = false;
+
+  static Future<void> _ensure() async {
+    if (_loaded) return;
+    final p = await SharedPreferences.getInstance();
+    try {
+      final s = p.getString('groupSeen');
+      if (s != null && s.isNotEmpty) {
+        final d = jsonDecode(s) as Map;
+        _m = d.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+      }
+    } catch (_) {}
+    _loaded = true;
+  }
+
+  static Future<Map<String, int>> all() async {
+    await _ensure();
+    return Map<String, int>.from(_m);
+  }
+
+  static Future<void> set(int gid, int id) async {
+    await _ensure();
+    if ((_m['$gid'] ?? -1) >= id) return;
+    _m['$gid'] = id;
+    final p = await SharedPreferences.getInstance();
+    await p.setString('groupSeen', jsonEncode(_m));
+  }
+}
+
+// ===================== الايموجي والملصقات =====================
+
+class EmojiTab {
+  final String title;
+  final List<String> items;
+  const EmojiTab(this.title, this.items);
+}
+
+const List<EmojiTab> kEmojiTabs = [
+  EmojiTab('😀 وجوه', [
+    '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣',
+    '😊', '😇', '🙂', '😉', '😍', '😘', '😋', '😜',
+    '🤔', '😎', '😴', '😢', '😭', '😡', '😱', '🙄',
+    '😏', '😌', '😔', '😞', '😤', '😳', '🤗', '🤐',
+  ]),
+  EmojiTab('❤️ قلوب وأيدي', [
+    '❤️', '💙', '💚', '💛', '🧡', '💜', '🖤', '💔',
+    '💕', '💖', '👍', '👎', '👏', '🙏', '🤝', '✌️',
+    '👋', '💪', '🤲', '👌', '🙌', '✋', '👀', '🔥',
+  ]),
+  EmojiTab('🍵 طعام', [
+    '☕', '🍵', '🍞', '🍚', '🍗', '🍖', '🍕', '🍔',
+    '🍟', '🍉', '🍇', '🍎', '🍌', '🍊', '🍋', '🥛',
+    '🍯', '🍰', '🍪', '🍫', '🍦', '🥗', '🌶️', '🍽️',
+  ]),
+  EmojiTab('⚽ متفرقات', [
+    '⚽', '🏀', '🏈', '🎾', '🏐', '🏆', '🥇', '🎮',
+    '🎵', '🎶', '🎉', '🎊', '🎁', '🚗', '✈️', '🌙',
+    '⭐', '☀️', '🌧️', '🌴', '🕌', '🇮🇶', '📍', '💯',
+  ]),
+];
+
+class IqSticker {
+  final String text;
+  final String emoji;
+  final Color color;
+  const IqSticker(this.text, this.emoji, this.color);
+}
+
+const List<IqSticker> kStickers = [
+  IqSticker('شلونك؟', '🤝', kRoyal),
+  IqSticker('هلا والله', '👋', Color(0xFF16A085)),
+  IqSticker('شكو ماكو؟', '☕', Color(0xFF8E4A1F)),
+  IqSticker('يا هلا', '🎉', Color(0xFFE67E22)),
+  IqSticker('حبيبي', '❤️', Color(0xFFC0392B)),
+  IqSticker('گلبي', '💙', kRoyal),
+  IqSticker('عاشت ايدك', '👏', Color(0xFF27AE60)),
+  IqSticker('تدلل', '👑', kGold),
+  IqSticker('تسلم', '🙏', Color(0xFF2C3E50)),
+  IqSticker('ما قصرت', '💪', Color(0xFF8E44AD)),
+  IqSticker('يابه', '😮', Color(0xFFE67E22)),
+  IqSticker('عاش', '🔥', Color(0xFFC0392B)),
+  IqSticker('خوش ولد', '😎', kRoyal),
+  IqSticker('فدوه', '🥰', Color(0xFFD35486)),
+  IqSticker('لا تزعل', '🥺', Color(0xFF16A085)),
+  IqSticker('الله كريم', '🤲', Color(0xFF2C3E50)),
+  IqSticker('ان شاء الله', '🌙', Color(0xFF1B3A8F)),
+  IqSticker('بالعافية', '🍽️', Color(0xFF27AE60)),
+  IqSticker('چاي وكعدة', '🍵', Color(0xFF8E4A1F)),
+  IqSticker('صباح الخير', '☀️', Color(0xFFE6A100)),
+  IqSticker('تصبح على خير', '🌙', Color(0xFF2C3E50)),
+  IqSticker('الله يسلمك', '🤝', Color(0xFF16A085)),
+  IqSticker('يا وجه الخير', '😊', Color(0xFFE67E22)),
+  IqSticker('ماكو مثلك', '🌟', kGold),
+  IqSticker('عراقي وافتخر', '🇮🇶', Color(0xFFC0392B)),
+];
+
+IqSticker? findSticker(String text) {
+  for (final s in kStickers) {
+    if (s.text == text) return s;
+  }
+  return null;
+}
+
+Widget stickerCard(IqSticker s) {
+  return Container(
+    padding: const EdgeInsets.all(6),
+    decoration: BoxDecoration(
+      color: s.color,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: kGold, width: 2),
+    ),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(s.emoji, style: const TextStyle(fontSize: 32)),
+        const SizedBox(height: 4),
+        Text(
+          s.text,
+          maxLines: 2,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class StickerPanel extends StatefulWidget {
+  final void Function(String) onEmoji;
+  final void Function(IqSticker) onSticker;
+  const StickerPanel({
+    super.key,
+    required this.onEmoji,
+    required this.onSticker,
+  });
+
+  @override
+  State<StickerPanel> createState() => _StickerPanelState();
+}
+
+class _StickerPanelState extends State<StickerPanel> {
+  int _tab = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final last = kEmojiTabs.length;
+    return Container(
+      height: 280,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: kGold, width: 1.5)),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 46,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (int i = 0; i <= last; i++)
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                    child: ChoiceChip(
+                      label: Text(
+                        i < last ? kEmojiTabs[i].title : '🇮🇶 ملصقات عراقية',
+                      ),
+                      selected: _tab == i,
+                      selectedColor: kGoldLight,
+                      backgroundColor: kBeige,
+                      side: const BorderSide(color: kGold),
+                      onSelected: (_) => setState(() => _tab = i),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _tab < last
+                ? GridView.count(
+                    crossAxisCount: 8,
+                    padding: const EdgeInsets.all(6),
+                    children: [
+                      for (final e in kEmojiTabs[_tab].items)
+                        InkWell(
+                          onTap: () => widget.onEmoji(e),
+                          child: Center(
+                            child:
+                                Text(e, style: const TextStyle(fontSize: 26)),
+                          ),
+                        ),
+                    ],
+                  )
+                : GridView.count(
+                    crossAxisCount: 3,
+                    padding: const EdgeInsets.all(8),
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 1.15,
+                    children: [
+                      for (final s in kStickers)
+                        GestureDetector(
+                          onTap: () => widget.onSticker(s),
+                          child: stickerCard(s),
+                        ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ===================== عناصر عامة =====================
 
 class IshtarWatermark extends StatelessWidget {
   const IshtarWatermark({super.key});
@@ -237,6 +960,11 @@ class ShlonkumApp extends StatelessWidget {
       theme: ThemeData(
         primaryColor: kRoyal,
         colorScheme: ColorScheme.fromSeed(seedColor: kRoyal),
+        scaffoldBackgroundColor: kBeige,
+        snackBarTheme: const SnackBarThemeData(
+          backgroundColor: kNight,
+          contentTextStyle: TextStyle(color: Colors.white),
+        ),
         useMaterial3: true,
       ),
       builder: (context, child) => Directionality(
@@ -281,22 +1009,72 @@ class _SplashGateState extends State<SplashGate> {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: kBeige,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(gradient: kHeaderGradient),
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            Text(
-              'شلونكم چات - IQ',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: kRoyal,
+            const GeoPattern(),
+            Center(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: 1),
+                duration: const Duration(milliseconds: 900),
+                curve: Curves.easeOutCubic,
+                builder: (c, v, child) => Opacity(
+                  opacity: v,
+                  child: Transform.scale(scale: 0.88 + 0.12 * v, child: child),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ArchFrame(
+                      width: 130,
+                      height: 150,
+                      child: Padding(
+                        padding: const EdgeInsets.all(18),
+                        child: Image.asset(
+                          'assets/iraq_map.png',
+                          fit: BoxFit.contain,
+                          errorBuilder: (c, e, s) =>
+                              const Icon(Icons.map, size: 60, color: kRoyal),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    const Text(
+                      'شلونكم چات',
+                      style: TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'IQ',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: kGoldLight,
+                        letterSpacing: 8,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const SizedBox(width: 120, child: OrnamentDivider()),
+                    const SizedBox(height: 12),
+                    const SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: CircularProgressIndicator(
+                        color: kGold,
+                        strokeWidth: 2.5,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            SizedBox(height: 16),
-            CircularProgressIndicator(color: kRoyal),
           ],
         ),
       ),
@@ -456,136 +1234,140 @@ class _Screen1RegisterState extends State<Screen1Register> {
     return Scaffold(
       backgroundColor: kBeige,
       body: SingleChildScrollView(
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            child: Column(
-              children: [
-                SizedBox(
-                  width: MediaQuery.of(context).size.width * 0.30,
-                  child: Image.asset(
-                    'assets/iraq_map.png',
-                    fit: BoxFit.contain,
-                    errorBuilder: (c, e, s) =>
-                        const Icon(Icons.map, size: 70, color: kRoyal),
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              decoration: const BoxDecoration(
+                gradient: kHeaderGradient,
+                borderRadius: BorderRadius.vertical(bottom: Radius.circular(40)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0x551B3A8F),
+                    blurRadius: 16,
+                    offset: Offset(0, 6),
                   ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  'شلونكم چات - IQ',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: kRoyal,
-                  ),
-                ),
-                const Text(
-                  'تطبيق تواصل عراقي لكل العراق',
-                  style: TextStyle(fontSize: 16, color: Colors.black54),
-                ),
-                const SizedBox(height: 28),
-                const Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    'سجل اسمك',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: kRoyal,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _name,
-                  decoration: const InputDecoration(
-                    hintText: 'مثال: أثير سامي',
-                    border: OutlineInputBorder(),
-                    filled: true,
-                    fillColor: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                const Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    'انشاء كلمة مرور قوية',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: kRoyal,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _pass,
-                  obscureText: _obscure,
-                  textDirection: TextDirection.ltr,
-                  decoration: InputDecoration(
-                    hintText: 'Password',
-                    border: const OutlineInputBorder(),
-                    filled: true,
-                    fillColor: Colors.white,
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscure ? Icons.visibility : Icons.visibility_off,
-                      ),
-                      onPressed: () => setState(() => _obscure = !_obscure),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: kGold.withOpacity(0.5)),
-                  ),
-                  child: const Text(
-                    'كلمة المرور يجب ان تكون 8 احرف، وتحتوي على حرف كبير ورقم وحرف خاص',
-                    style: TextStyle(fontSize: 13, color: Colors.black54),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: kRoyal,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(bottom: Radius.circular(40)),
+                child: Stack(
+                  children: [
+                    const GeoPattern(),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        height: 4,
+                        decoration: const BoxDecoration(gradient: kGoldGradient),
                       ),
                     ),
-                    onPressed: _loading ? null : _register,
-                    child: _loading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text(
-                            'تسجيل',
-                            style: TextStyle(
-                              fontSize: 19,
-                              fontWeight: FontWeight.bold,
+                    SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 18, 24, 30),
+                        child: Column(
+                          children: [
+                            ArchFrame(
+                              width: 120,
+                              height: 140,
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Image.asset(
+                                  'assets/iraq_map.png',
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (c, e, s) => const Icon(
+                                    Icons.map,
+                                    size: 60,
+                                    color: kRoyal,
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
-                  ),
+                            const SizedBox(height: 14),
+                            const Text(
+                              'شلونكم چات - IQ',
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'تطبيق تواصل عراقي لكل العراق',
+                              style: TextStyle(fontSize: 15, color: kGoldLight),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 10),
-                if (_msg.isNotEmpty)
-                  Text(
-                    _msg,
-                    style: const TextStyle(color: Colors.red),
-                    textAlign: TextAlign.center,
-                  ),
-                const SizedBox(height: 24),
-                const CreatorWatermark(),
-              ],
+              ),
             ),
-          ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 26, 24, 16),
+              child: Column(
+                children: [
+                  iqLabel('سجل اسمك'),
+                  TextField(
+                    controller: _name,
+                    decoration: iqInput('اسم المستخدم ( عربي او انكليزي )'),
+                  ),
+                  const SizedBox(height: 18),
+                  iqLabel('انشاء كلمة مرور قوية'),
+                  TextField(
+                    controller: _pass,
+                    obscureText: _obscure,
+                    textDirection: TextDirection.ltr,
+                    decoration: iqInput(
+                      'Password',
+                      suffix: IconButton(
+                        icon: Icon(
+                          _obscure ? Icons.visibility : Icons.visibility_off,
+                          color: kRoyal,
+                        ),
+                        onPressed: () => setState(() => _obscure = !_obscure),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF8E6),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: kGold.withOpacity(0.5)),
+                    ),
+                    child: const Text(
+                      'كلمة المرور يجب ان تكون 8 احرف، وتحتوي على حرف كبير ورقم وحرف خاص',
+                      style: TextStyle(fontSize: 13, color: Colors.black54),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  GradientButton(
+                    label: 'تسجيل',
+                    loading: _loading,
+                    onPressed: _loading ? null : _register,
+                  ),
+                  const SizedBox(height: 10),
+                  if (_msg.isNotEmpty)
+                    Text(
+                      _msg,
+                      style: const TextStyle(color: Colors.red),
+                      textAlign: TextAlign.center,
+                    ),
+                  const OrnamentDivider(),
+                  const CreatorWatermark(),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -602,13 +1384,28 @@ class Screen2PersonalNumber extends StatelessWidget {
       backgroundColor: kBeige,
       body: Stack(
         children: [
+          const GeoPattern(color: Color(0x0F1B3A8F), cell: 54),
           const IshtarWatermark(),
           SafeArea(
-            child: Padding(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               child: Column(
                 children: [
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 16),
+                  ArchFrame(
+                    width: 100,
+                    height: 118,
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Image.asset(
+                        'assets/iraq_map.png',
+                        fit: BoxFit.contain,
+                        errorBuilder: (c, e, s) =>
+                            const Icon(Icons.map, size: 50, color: kRoyal),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   const Text(
                     'شلونكم چات - IQ',
                     style: TextStyle(
@@ -617,13 +1414,14 @@ class Screen2PersonalNumber extends StatelessWidget {
                       color: kRoyal,
                     ),
                   ),
-                  const SizedBox(height: 30),
+                  const OrnamentDivider(),
+                  const SizedBox(height: 8),
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFFEDED),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                       border: Border.all(color: Colors.red.withOpacity(0.3)),
                     ),
                     child: const Text(
@@ -637,65 +1435,65 @@ class Screen2PersonalNumber extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
+                  GoldCard(
+                    padding: EdgeInsets.zero,
+                    child: ClipRRect(
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: kGold, width: 1.5),
-                    ),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'رقمك الشخصي',
-                          style: TextStyle(color: Colors.black54),
-                        ),
-                        const SizedBox(height: 6),
-                        SelectableText(
-                          number,
-                          style: const TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.bold,
-                            color: kRoyal,
-                            letterSpacing: 4,
+                      child: Column(
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration:
+                                const BoxDecoration(gradient: kHeaderGradient),
+                            child: const Text(
+                              'بطاقة الرقم الشخصي',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: kGoldLight,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
-                          textDirection: TextDirection.ltr,
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'اضغط مطولا للنسخ',
-                          style: TextStyle(fontSize: 12, color: Colors.black45),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: kRoyal,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      onPressed: () => Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (_) => const Screen3Profile()),
-                      ),
-                      child: const Text(
-                        'ادخل',
-                        style: TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.bold,
-                        ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 24),
+                            child: Column(
+                              children: [
+                                SelectableText(
+                                  number,
+                                  style: const TextStyle(
+                                    fontSize: 38,
+                                    fontWeight: FontWeight.bold,
+                                    color: kRoyal,
+                                    letterSpacing: 4,
+                                  ),
+                                  textDirection: TextDirection.ltr,
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'اضغط مطولا للنسخ',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black45,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(height: 28),
+                  GradientButton(
+                    label: 'ادخل',
+                    onPressed: () => Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => const Screen3Profile()),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   const CreatorWatermark(),
                 ],
               ),
@@ -774,14 +1572,15 @@ class _Screen3ProfileState extends State<Screen3Profile> {
     final hasPhoto = activePath.isNotEmpty && File(activePath).existsSync();
     return Scaffold(
       backgroundColor: kBeige,
-      appBar: AppBar(
-        title: const Text('انشاء ملفك الشخصي'),
-        backgroundColor: kRoyal,
-        foregroundColor: Colors.white,
-        centerTitle: true,
+      appBar: iqAppBar(
+        title: const Text(
+          'انشاء ملفك الشخصي',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
       ),
       body: Stack(
         children: [
+          const GeoPattern(color: Color(0x0F1B3A8F), cell: 54),
           const IshtarWatermark(),
           SingleChildScrollView(
             padding: const EdgeInsets.all(24),
@@ -792,28 +1591,36 @@ class _Screen3ProfileState extends State<Screen3Profile> {
                   onTap: _pickPhoto,
                   child: Stack(
                     children: [
-                      CircleAvatar(
-                        radius: 58,
-                        backgroundColor: kRoyal,
-                        backgroundImage:
-                            hasPhoto ? FileImage(File(activePath)) : null,
-                        child: hasPhoto
-                            ? null
-                            : const Icon(
-                                Icons.person,
-                                size: 60,
-                                color: Colors.white,
-                              ),
+                      Container(
+                        padding: const EdgeInsets.all(3.5),
+                        decoration: const BoxDecoration(
+                          gradient: kGoldGradient,
+                          shape: BoxShape.circle,
+                        ),
+                        child: CircleAvatar(
+                          radius: 58,
+                          backgroundColor: kRoyal,
+                          backgroundImage:
+                              hasPhoto ? FileImage(File(activePath)) : null,
+                          child: hasPhoto
+                              ? null
+                              : const Icon(
+                                  Icons.person,
+                                  size: 60,
+                                  color: Colors.white,
+                                ),
+                        ),
                       ),
                       Positioned(
-                        bottom: 0,
-                        left: 0,
+                        bottom: 2,
+                        left: 2,
                         child: Container(
                           width: 36,
                           height: 36,
-                          decoration: const BoxDecoration(
+                          decoration: BoxDecoration(
                             color: kGold,
                             shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
                           ),
                           child: const Icon(
                             Icons.camera_alt,
@@ -831,83 +1638,46 @@ class _Screen3ProfileState extends State<Screen3Profile> {
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
                 const SizedBox(height: 16),
-                Container(
+                SizedBox(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: kGold.withOpacity(0.4)),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        LocalStore.name,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: kRoyal,
+                  child: GoldCard(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Text(
+                          LocalStore.name,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: kRoyal,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        LocalStore.personalNumber,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          color: Colors.black54,
-                          letterSpacing: 2,
+                        const SizedBox(height: 4),
+                        Text(
+                          LocalStore.personalNumber,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            color: Colors.black54,
+                            letterSpacing: 2,
+                          ),
+                          textDirection: TextDirection.ltr,
                         ),
-                        textDirection: TextDirection.ltr,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-                const Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    'سجل حالتك',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: kRoyal,
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 6),
+                const OrnamentDivider(),
+                iqLabel('سجل حالتك'),
                 TextField(
                   controller: _status,
                   maxLines: 3,
-                  decoration: const InputDecoration(
-                    hintText: 'مثال: شلونكم، انا موجود',
-                    border: OutlineInputBorder(),
-                    filled: true,
-                    fillColor: Colors.white,
-                  ),
+                  decoration: iqInput('مثال: شلونكم، انا موجود'),
                 ),
                 const SizedBox(height: 22),
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: kRoyal,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    onPressed: _loading ? null : _save,
-                    child: _loading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text(
-                            'حفظ',
-                            style: TextStyle(
-                              fontSize: 19,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                  ),
+                GradientButton(
+                  label: 'حفظ',
+                  loading: _loading,
+                  onPressed: _loading ? null : _save,
                 ),
                 const SizedBox(height: 20),
                 const CreatorWatermark(),
@@ -979,6 +1749,8 @@ class _RemoteImageState extends State<RemoteImage> {
   }
 }
 
+// ===================== شاشة الاصدقاء والمجموعات =====================
+
 class Screen4Contacts extends StatefulWidget {
   const Screen4Contacts({super.key});
 
@@ -986,17 +1758,25 @@ class Screen4Contacts extends StatefulWidget {
   State<Screen4Contacts> createState() => _Screen4ContactsState();
 }
 
-class _Screen4ContactsState extends State<Screen4Contacts> {
+class _Screen4ContactsState extends State<Screen4Contacts>
+    with SingleTickerProviderStateMixin {
   List _contacts = [];
+  List _groups = [];
   bool _loading = true;
   bool _inChat = false;
   bool _busy = false;
   int _prevUnread = -1;
   Timer? _timer;
+  late final TabController _tab;
 
   @override
   void initState() {
     super.initState();
+    _tab = TabController(length: 2, vsync: this);
+    _tab.addListener(() {
+      if (mounted) setState(() {});
+    });
+    Presence.start();
     _load();
     _timer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!_inChat && !_busy) _load(silent: true);
@@ -1006,18 +1786,20 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
   @override
   void dispose() {
     _timer?.cancel();
+    _tab.dispose();
     super.dispose();
   }
 
-  void _notifyNew() {
-    HapticFeedback.vibrate();
-    SystemSound.play(SystemSoundType.click);
+  void _snack(String t, {int seconds = 3}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('وصلتك رسالة جديدة'),
-        duration: Duration(seconds: 2),
-      ),
+      SnackBar(content: Text(t), duration: Duration(seconds: seconds)),
     );
+  }
+
+  void _notifyNew() {
+    Alerts.ping();
+    _snack('وصلتك رسالة جديدة', seconds: 2);
   }
 
   Future<void> _load({bool silent = false}) async {
@@ -1025,6 +1807,7 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
     _busy = true;
     if (!silent && mounted) setState(() => _loading = true);
     final me = LocalStore.personalNumber;
+    int total = 0;
     try {
       final res = await ApiClient.getRows('contacts', {
         'select': 'friend_number',
@@ -1062,7 +1845,7 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
       final profMap = <String, Map>{};
       if (nums.isNotEmpty) {
         final profs = await ApiClient.getRows('profiles', {
-          'select': 'name,personal_number,is_online,status',
+          'select': 'name,personal_number,is_online,last_seen,status',
           'personal_number': 'in.(${nums.join(',')})',
         });
         for (final p in profs) {
@@ -1077,7 +1860,7 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
         merged.add({
           'name': (p?['name'] ?? 'صديق').toString(),
           'friend_number': n,
-          'is_online': p?['is_online'] == true,
+          'is_online': presenceOnline(p),
           'status': (p?['status'] ?? '').toString(),
           'unread': counts[n] ?? 0,
         });
@@ -1089,14 +1872,78 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
       LocalStore.contacts = merged;
       await LocalStore.save();
 
-      final total = counts.values.fold<int>(0, (a, b) => a + b);
-      if (_prevUnread >= 0 && total > _prevUnread && mounted) {
-        _notifyNew();
-      }
-      _prevUnread = total;
+      total += counts.values.fold<int>(0, (a, b) => a + b);
     } catch (_) {
       if (_contacts.isEmpty) _contacts = List.from(LocalStore.contacts);
     }
+
+    // المجموعات (منفصلة حتى لا تتعطل قائمة الاصدقاء اذا لم يُشغَّل كود SQL)
+    try {
+      final mem = await ApiClient.getRows('group_members', {
+        'select': 'group_id',
+        'member_number': 'eq.$me',
+      });
+      final ids = <int>[];
+      for (final e in mem) {
+        final g = int.tryParse('${e['group_id']}');
+        if (g != null && !ids.contains(g)) ids.add(g);
+      }
+      final groups = [];
+      if (ids.isNotEmpty) {
+        final gs = await ApiClient.getRows('groups', {
+          'select': 'id,name,creator_number',
+          'id': 'in.(${ids.join(',')})',
+          'order': 'id.asc',
+        });
+        final seen = await GroupSeen.all();
+        int minSeen = seen['${ids.first}'] ?? 0;
+        for (final g in ids) {
+          final s = seen['$g'] ?? 0;
+          if (s < minSeen) minSeen = s;
+        }
+        final msgs = await ApiClient.getRows('messages', {
+          'select': 'id,group_id',
+          'group_id': 'in.(${ids.join(',')})',
+          'sender_number': 'neq.$me',
+          'id': 'gt.$minSeen',
+        });
+        final gcounts = <int, int>{};
+        final firstMax = <int, int>{};
+        for (final m in msgs) {
+          final gid = int.tryParse('${m['group_id']}');
+          final id = int.tryParse('${m['id']}');
+          if (gid == null || id == null) continue;
+          final last = seen['$gid'];
+          if (last == null) {
+            firstMax[gid] = max(firstMax[gid] ?? 0, id);
+          } else if (id > last) {
+            gcounts[gid] = (gcounts[gid] ?? 0) + 1;
+          }
+        }
+        // مجموعة جديدة بالنسبة لي: لا نعتبر رسائلها القديمة غير مقروءة
+        for (final g in ids) {
+          if (seen['$g'] == null) {
+            await GroupSeen.set(g, firstMax[g] ?? 0);
+          }
+        }
+        for (final g in gs) {
+          final gid = int.tryParse('${g['id']}') ?? 0;
+          groups.add({
+            'id': gid,
+            'name': (g['name'] ?? 'مجموعة').toString(),
+            'unread': gcounts[gid] ?? 0,
+          });
+        }
+        total += gcounts.values.fold<int>(0, (a, b) => a + b);
+      }
+      _groups = groups;
+    } catch (_) {}
+
+    if (_prevUnread >= 0 && total > _prevUnread && mounted) {
+      _notifyNew();
+    }
+    _prevUnread = total;
+
     _busy = false;
     if (!mounted) return;
     setState(() => _loading = false);
@@ -1133,19 +1980,11 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
     ctrl.dispose();
     if (result == null) return;
     if (result.length != 9) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('اكتب رقم شخصي صحيح - 9 ارقام')),
-        );
-      }
+      _snack('اكتب رقم شخصي صحيح - 9 ارقام');
       return;
     }
     if (result == LocalStore.personalNumber) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('هذا رقمك انت')),
-        );
-      }
+      _snack('هذا رقمك انت');
       return;
     }
 
@@ -1158,23 +1997,13 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
       });
       if (r.isNotEmpty) found = Map.from(r[0] as Map);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 8),
-            content: Text('تعذر الاتصال بالخادم، تحقق من الانترنت وحاول مرة اخرى\n$e'),
-          ),
-        );
-      }
+      _snack('تعذر الاتصال بالخادم، تحقق من الانترنت وحاول مرة اخرى\n$e',
+          seconds: 8);
       return;
     }
 
     if (found == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('هذا الرقم غير مسجل بالتطبيق بعد')),
-        );
-      }
+      _snack('هذا الرقم غير مسجل بالتطبيق بعد');
       return;
     }
     if (!mounted) return;
@@ -1213,148 +2042,363 @@ class _Screen4ContactsState extends State<Screen4Contacts> {
       });
     } catch (_) {}
     await _load();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تمت إضافة $name كصديق')),
+    _snack('تمت إضافة $name كصديق');
+  }
+
+  Future<void> _createGroup() async {
+    if (_contacts.isEmpty) {
+      _snack('اضف اصدقاء اولا حتى تتمكن من انشاء مجموعة');
+      return;
+    }
+    final nameCtrl = TextEditingController();
+    final picked = <String>{};
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, setD) => AlertDialog(
+          title: const Text('مجموعة جديدة'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'اسم المجموعة',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'اختر الاعضاء',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: _contacts.map<Widget>((f) {
+                      final n = (f['friend_number'] ?? '').toString();
+                      final nm = (f['name'] ?? 'صديق').toString();
+                      return CheckboxListTile(
+                        dense: true,
+                        value: picked.contains(n),
+                        title: Text(nm),
+                        subtitle: Text(n, textDirection: TextDirection.ltr),
+                        onChanged: (v) {
+                          setD(() {
+                            if (v == true) {
+                              picked.add(n);
+                            } else {
+                              picked.remove(n);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('إلغاء'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('إنشاء'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final gname = nameCtrl.text.trim();
+    nameCtrl.dispose();
+    if (ok != true) return;
+    if (gname.isEmpty) {
+      _snack('اكتب اسم المجموعة');
+      return;
+    }
+    if (picked.isEmpty) {
+      _snack('اختر عضوا واحدا على الاقل');
+      return;
+    }
+    final me = LocalStore.personalNumber;
+    try {
+      final rows = await ApiClient.insertReturning('groups', {
+        'name': gname,
+        'creator_number': me,
+      });
+      final gid = int.parse('${(rows.first as Map)['id']}');
+      await ApiClient.insertReturning('group_members', [
+        {'group_id': gid, 'member_number': me},
+        for (final n in picked) {'group_id': gid, 'member_number': n},
+      ]);
+      await GroupSeen.set(gid, 0);
+      await _load();
+      _tab.animateTo(1);
+      _snack('تم انشاء المجموعة $gname');
+    } catch (e) {
+      _snack(
+        'تعذر انشاء المجموعة، تاكد من تشغيل كود SQL الخاص بالمجموعات\n$e',
+        seconds: 8,
       );
     }
   }
 
+  Widget _presenceDot(bool online) => Container(
+        width: 14,
+        height: 14,
+        decoration: BoxDecoration(
+          color: online ? Colors.green : Colors.red,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+        ),
+      );
+
+  Widget _emptyNote(String t) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(30),
+          child: Text(
+            t,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.black54, fontSize: 15),
+          ),
+        ),
+      );
+
+  Widget _friendsList() {
+    if (_contacts.isEmpty) {
+      return _emptyNote('لا يوجد أصدقاء بعد - اضغط + وأضف صديقك برقمه الشخصي');
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 8, bottom: 90),
+      itemCount: _contacts.length,
+      itemBuilder: (c, i) {
+        final f = _contacts[i];
+        final name = (f['name'] ?? 'صديق').toString();
+        final num =
+            (f['friend_number'] ?? f['personal_number'] ?? '').toString();
+        final online = f['is_online'] == true;
+        final unread = (f['unread'] ?? 0) as int;
+        return GoldCard(
+          margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          padding: EdgeInsets.zero,
+          child: ListTile(
+            leading: Stack(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(
+                    gradient: kGoldGradient,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const CircleAvatar(
+                    backgroundColor: kRoyal,
+                    child: Icon(Icons.person, color: Colors.white),
+                  ),
+                ),
+                Positioned(bottom: 0, left: 0, child: _presenceDot(online)),
+              ],
+            ),
+            title: Text(
+              name,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: kNight,
+              ),
+            ),
+            subtitle: Row(
+              children: [
+                Text(num, textDirection: TextDirection.ltr),
+                const SizedBox(width: 8),
+                Text(
+                  online ? 'متصل' : 'غير متصل',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: online ? Colors.green : Colors.red,
+                  ),
+                ),
+              ],
+            ),
+            trailing: _unreadBadge(unread),
+            onTap: () async {
+              _inChat = true;
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => Screen5Chat(
+                    friendName: name,
+                    friendNumber: num,
+                    isOnline: online,
+                  ),
+                ),
+              );
+              _inChat = false;
+              _load(silent: true);
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _unreadBadge(int unread) {
+    if (unread > 0) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x55FF0000),
+              blurRadius: 6,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Text(
+          '$unread',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      );
+    }
+    return const Icon(Icons.chat_bubble_outline, color: kRoyal);
+  }
+
+  Widget _groupsList() {
+    if (_groups.isEmpty) {
+      return _emptyNote('لا توجد مجموعات - اضغط + لانشاء مجموعة');
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 8, bottom: 90),
+      itemCount: _groups.length,
+      itemBuilder: (c, i) {
+        final g = _groups[i];
+        final name = (g['name'] ?? 'مجموعة').toString();
+        final gid = g['id'] as int;
+        final unread = (g['unread'] ?? 0) as int;
+        return GoldCard(
+          margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          padding: EdgeInsets.zero,
+          child: ListTile(
+            leading: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: const BoxDecoration(
+                gradient: kGoldGradient,
+                shape: BoxShape.circle,
+              ),
+              child: const CircleAvatar(
+                backgroundColor: kTurquoise,
+                child: Icon(Icons.groups, color: Colors.white),
+              ),
+            ),
+            title: Text(
+              name,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: kNight,
+              ),
+            ),
+            subtitle: const Text('مجموعة'),
+            trailing: _unreadBadge(unread),
+            onTap: () async {
+              _inChat = true;
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => Screen5Chat(
+                    friendName: name,
+                    groupId: gid,
+                  ),
+                ),
+              );
+              _inChat = false;
+              _load(silent: true);
+            },
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final onFriends = _tab.index == 0;
     return Scaffold(
       backgroundColor: kBeige,
-      appBar: AppBar(
-        title: const Text('الأصدقاء'),
-        backgroundColor: kRoyal,
-        foregroundColor: Colors.white,
-        centerTitle: true,
+      appBar: iqAppBar(
+        title: const Text(
+          'شلونكم چات',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 21,
+            letterSpacing: 0.5,
+          ),
+        ),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
+        bottom: TabBar(
+          controller: _tab,
+          indicatorColor: kGoldLight,
+          indicatorWeight: 3,
+          labelColor: kGoldLight,
+          unselectedLabelColor: Colors.white70,
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+          tabs: const [
+            Tab(text: 'الأصدقاء'),
+            Tab(text: 'المجموعات'),
+          ],
+        ),
       ),
       body: Stack(
         children: [
+          const GeoPattern(color: Color(0x0F1B3A8F), cell: 54),
           const IshtarWatermark(),
           _loading
               ? const Center(child: CircularProgressIndicator(color: kRoyal))
-              : _contacts.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'لا يوجد أصدقاء بعد - اضغط + وأضف صديقك برقمه الشخصي',
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _contacts.length,
-                      itemBuilder: (c, i) {
-                        final f = _contacts[i];
-                        final name = (f['name'] ?? 'صديق').toString();
-                        final num =
-                            (f['friend_number'] ?? f['personal_number'] ?? '')
-                                .toString();
-                        final online = f['is_online'] == true;
-                        final unread = (f['unread'] ?? 0) as int;
-                        return Card(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 6,
-                          ),
-                          child: ListTile(
-                            leading: Stack(
-                              children: [
-                                const CircleAvatar(
-                                  backgroundColor: kRoyal,
-                                  child: Icon(Icons.person, color: Colors.white),
-                                ),
-                                Positioned(
-                                  bottom: 0,
-                                  left: 0,
-                                  child: Container(
-                                    width: 14,
-                                    height: 14,
-                                    decoration: BoxDecoration(
-                                      color: online ? Colors.green : Colors.red,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: Colors.white,
-                                        width: 2,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            title: Text(
-                              name,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle:
-                                Text(num, textDirection: TextDirection.ltr),
-                            trailing: unread > 0
-                                ? Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 5,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.red,
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                    child: Text(
-                                      '$unread',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.chat_bubble_outline,
-                                    color: kRoyal,
-                                  ),
-                            onTap: () async {
-                              _inChat = true;
-                              await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => Screen5Chat(
-                                    friendName: name,
-                                    friendNumber: num,
-                                    isOnline: online,
-                                  ),
-                                ),
-                              );
-                              _inChat = false;
-                              _load(silent: true);
-                            },
-                          ),
-                        );
-                      },
-                    ),
+              : TabBarView(
+                  controller: _tab,
+                  children: [_friendsList(), _groupsList()],
+                ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addFriend,
-        backgroundColor: kRoyal,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add),
-        label: const Text('إضافة صديق'),
+        onPressed: onFriends ? _addFriend : _createGroup,
+        backgroundColor: kGold,
+        foregroundColor: kNight,
+        icon: Icon(onFriends ? Icons.person_add : Icons.group_add),
+        label: Text(
+          onFriends ? 'إضافة صديق' : 'مجموعة جديدة',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
       ),
     );
   }
 }
 
+// ===================== شاشة المحادثة (فردية او مجموعة) =====================
+
 class Screen5Chat extends StatefulWidget {
   final String friendName;
   final String friendNumber;
   final bool isOnline;
+  final int? groupId;
 
   const Screen5Chat({
     super.key,
     required this.friendName,
-    required this.friendNumber,
-    required this.isOnline,
+    this.friendNumber = '',
+    this.isOnline = false,
+    this.groupId,
   });
 
   @override
@@ -1366,20 +2410,21 @@ class _Screen5ChatState extends State<Screen5Chat> {
   final _scroll = ScrollController();
   List _msgs = [];
   final List _pending = [];
-  bool _showStickers = false;
+  final Map<String, String> _names = {};
+  bool _showPanel = false;
   bool _busy = false;
+  bool _online = false;
   int _prevIncoming = -1;
+  int _namesTried = 0;
   Timer? _timer;
-  final List _emojis = [
-    '😀', '😂', '❤️', '😍', '👍', '🙏', '🇮🇶', '☕', '🍵', '⚽', '🎉', '😢', '😡', '👋'
-  ];
-  final List _iraqiStickers = [
-    'شلونك', 'هلا', 'هلا والله', 'تمام', 'يالله', 'أكو', 'ماكو', 'شلونكم', 'حبيبي', 'عاشت إيدك', 'الله كريم', 'إن شاء الله'
-  ];
+
+  bool get _isGroup => widget.groupId != null;
 
   @override
   void initState() {
     super.initState();
+    _online = widget.isOnline;
+    if (_isGroup) _loadNames();
     _load();
     _timer = Timer.periodic(const Duration(seconds: 3), (_) => _load());
   }
@@ -1392,6 +2437,13 @@ class _Screen5ChatState extends State<Screen5Chat> {
     super.dispose();
   }
 
+  void _snack(String t, {int seconds = 3}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(t), duration: Duration(seconds: seconds)),
+    );
+  }
+
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
@@ -1402,6 +2454,33 @@ class _Screen5ChatState extends State<Screen5Chat> {
         );
       }
     });
+  }
+
+  Future<void> _loadNames() async {
+    _namesTried++;
+    try {
+      final mem = await ApiClient.getRows('group_members', {
+        'select': 'member_number',
+        'group_id': 'eq.${widget.groupId}',
+      });
+      final nums = mem
+          .map((e) => (e['member_number'] ?? '').toString())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (nums.isEmpty) return;
+      final profs = await ApiClient.getRows('profiles', {
+        'select': 'name,personal_number',
+        'personal_number': 'in.(${nums.join(',')})',
+      });
+      for (final n in nums) {
+        _names[n] = n;
+      }
+      for (final p in profs) {
+        _names[(p['personal_number'] ?? '').toString()] =
+            (p['name'] ?? '').toString();
+      }
+      if (mounted) setState(() {});
+    } catch (_) {}
   }
 
   Future<void> _markRead() async {
@@ -1424,73 +2503,111 @@ class _Screen5ChatState extends State<Screen5Chat> {
     final me = LocalStore.personalNumber;
     final peer = widget.friendNumber;
     try {
-      final res = await ApiClient.getRows('messages', {
-        'select': '*',
-        'or':
-            '(and(sender_number.eq.$me,receiver_number.eq.$peer),and(sender_number.eq.$peer,receiver_number.eq.$me))',
-        'order': 'created_at.asc',
-      });
-      final incoming = res.where((m) => m['sender_number'] == peer).length;
-      final hasNew = _prevIncoming >= 0 && incoming > _prevIncoming;
-      final changed = res.length != _msgs.length;
-      _prevIncoming = incoming;
-      _msgs = res;
-      final hasUnread = res.any(
-        (m) => m['sender_number'] == peer && m['is_read'] != true,
-      );
-      if (hasUnread) _markRead();
-      if (hasNew) {
-        HapticFeedback.lightImpact();
-        SystemSound.play(SystemSoundType.click);
+      final List res;
+      if (_isGroup) {
+        res = await ApiClient.getRows('messages', {
+          'select': '*',
+          'group_id': 'eq.${widget.groupId}',
+          'order': 'created_at.asc',
+        });
+      } else {
+        res = await ApiClient.getRows('messages', {
+          'select': '*',
+          'or':
+              '(and(sender_number.eq.$me,receiver_number.eq.$peer),and(sender_number.eq.$peer,receiver_number.eq.$me))',
+          'order': 'created_at.asc',
+        });
+        // حالة الصديق (متصل / غير متصل)
+        try {
+          final p = await ApiClient.getRows('profiles', {
+            'select': 'is_online,last_seen',
+            'personal_number': 'eq.$peer',
+            'limit': '1',
+          });
+          if (p.isNotEmpty) _online = presenceOnline(p[0] as Map);
+        } catch (_) {}
       }
+
+      // الرسائل التي حذفتها انت (عندك فقط) لا تظهر لك
+      final vis = res
+          .where((m) =>
+              !(m['sender_number'] == me && m['hidden_for_sender'] == true))
+          .toList();
+
+      final incoming = vis.where((m) => m['sender_number'] != me).length;
+      final hasNew = _prevIncoming >= 0 && incoming > _prevIncoming;
+      final changed = vis.length != _msgs.length;
+      _prevIncoming = incoming;
+      _msgs = vis;
+
+      if (_isGroup) {
+        int maxId = 0;
+        for (final m in res) {
+          final id = int.tryParse('${m['id']}') ?? 0;
+          if (id > maxId) maxId = id;
+        }
+        await GroupSeen.set(widget.groupId!, maxId);
+        if (_namesTried < 3 &&
+            vis.any((m) => !_names.containsKey('${m['sender_number']}'))) {
+          _loadNames();
+        }
+      } else {
+        final hasUnread = res.any(
+          (m) => m['sender_number'] == peer && m['is_read'] != true,
+        );
+        if (hasUnread) _markRead();
+      }
+
+      if (hasNew) Alerts.ping();
       if (mounted) {
         setState(() {});
         if (changed) _scrollToEnd();
       }
-    } catch (_) {
-      if (_msgs.isEmpty) {
-        _msgs = LocalStore.messages
-            .where((m) =>
-                (m['sender_number'] == me && m['receiver_number'] == peer) ||
-                (m['sender_number'] == peer && m['receiver_number'] == me))
-            .toList();
-        if (mounted) setState(() {});
-      }
-    }
+    } catch (_) {}
     _busy = false;
   }
 
-  Future<void> _sendText(String text) async {
-    final t = text.trim();
-    if (t.isEmpty) return;
-    _ctrl.clear();
-    final msg = {
-      'sender_number': LocalStore.personalNumber,
-      'receiver_number': widget.friendNumber,
-      'content': t,
-      'message_type': 'text',
-      'is_read': false,
-    };
+  Map<String, dynamic> _base(String type, String content) => {
+        'sender_number': LocalStore.personalNumber,
+        if (_isGroup)
+          'group_id': widget.groupId
+        else
+          'receiver_number': widget.friendNumber,
+        'content': content,
+        'message_type': type,
+        'is_read': false,
+      };
+
+  Future<void> _send(String type, String content) async {
+    final msg = _base(type, content);
     setState(() {
-      _showStickers = false;
+      _showPanel = false;
       _pending.add(msg);
     });
     _scrollToEnd();
     try {
       await ApiClient.insertRow('messages', msg);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 6),
-            content: Text('تعذر ارسال الرسالة\n$e'),
-          ),
-        );
-      }
+      _snack('تعذر ارسال الرسالة\n$e', seconds: 6);
     }
     _pending.remove(msg);
     _busy = false;
     await _load();
+  }
+
+  Future<void> _sendText(String text) async {
+    final t = text.trim();
+    if (t.isEmpty) return;
+    _ctrl.clear();
+    await _send('text', t);
+  }
+
+  void _insertEmoji(String e) {
+    final t = _ctrl.text + e;
+    _ctrl.value = TextEditingValue(
+      text: t,
+      selection: TextSelection.collapsed(offset: t.length),
+    );
   }
 
   Future<void> _sendImage() async {
@@ -1502,38 +2619,107 @@ class _Screen5ChatState extends State<Screen5Chat> {
     );
     if (f == null) return;
     final msg = {
-      'sender_number': LocalStore.personalNumber,
-      'receiver_number': widget.friendNumber,
-      'content': '[صورة]',
-      'message_type': 'image',
+      ..._base('image', '[صورة]'),
       'local_path': f.path,
-      'is_read': false,
     };
     setState(() => _pending.add(msg));
     _scrollToEnd();
     try {
       final name = await ApiClient.uploadImage(File(f.path));
-      await ApiClient.insertRow('messages', {
-        'sender_number': LocalStore.personalNumber,
-        'receiver_number': widget.friendNumber,
-        'content': '[صورة]',
-        'message_type': 'image',
-        'image_path': name,
-        'is_read': false,
-      });
+      final toSend = _base('image', '[صورة]');
+      toSend['image_path'] = name;
+      await ApiClient.insertRow('messages', toSend);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 8),
-            content: Text('تعذر ارسال الصورة\n$e'),
-          ),
-        );
-      }
+      _snack('تعذر ارسال الصورة\n$e', seconds: 8);
     }
     _pending.remove(msg);
     _busy = false;
     await _load();
+  }
+
+  // حذف الرسالة من جهة المرسل فقط
+  Future<void> _deleteMine(Map m) async {
+    final id = m['id'];
+    if (id == null) return;
+    try {
+      await ApiClient.updateRows(
+        'messages',
+        {'id': 'eq.$id'},
+        {'hidden_for_sender': true},
+      );
+      if (mounted) setState(() => _msgs.removeWhere((x) => x['id'] == id));
+    } catch (e) {
+      _snack('تعذر حذف الرسالة. تاكد من تشغيل كود SQL الجديد\n$e', seconds: 6);
+    }
+  }
+
+  void _msgMenu(Map m) {
+    final isText = (m['message_type'] ?? 'text') == 'text';
+    showModalBottomSheet(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isText)
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('نسخ'),
+                onTap: () {
+                  Clipboard.setData(
+                    ClipboardData(text: (m['content'] ?? '').toString()),
+                  );
+                  Navigator.pop(c);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.delete, color: Colors.red),
+              title: const Text('حذف عندي'),
+              subtitle: Text(
+                _isGroup
+                    ? 'تبقى الرسالة ظاهرة عند باقي الاعضاء'
+                    : 'تبقى الرسالة ظاهرة عند الطرف الاخر',
+              ),
+              onTap: () {
+                Navigator.pop(c);
+                _deleteMine(m);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMembers() {
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('الاعضاء'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: _names.entries
+                .map(
+                  (e) => ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.person),
+                    title: Text(e.value),
+                    subtitle: Text(e.key, textDirection: TextDirection.ltr),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('اغلاق'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _imageOf(Map m, {double? w, double? h, BoxFit fit = BoxFit.cover}) {
@@ -1580,6 +2766,7 @@ class _Screen5ChatState extends State<Screen5Chat> {
   }
 
   Widget _readIcon(Map m) {
+    if (_isGroup) return const SizedBox();
     final isMine = m['sender_number'] == LocalStore.personalNumber;
     if (!isMine) return const SizedBox();
     final read = m['is_read'] == true;
@@ -1606,14 +2793,34 @@ class _Screen5ChatState extends State<Screen5Chat> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final shown = [..._msgs, ..._pending];
-    return Scaffold(
-      backgroundColor: kBeige,
-      appBar: AppBar(
-        backgroundColor: kRoyal,
-        foregroundColor: Colors.white,
+  Widget _bubbleBody(Map m, bool isMine) {
+    final type = (m['message_type'] ?? 'text').toString();
+    if (type == 'image') {
+      return GestureDetector(
+        onTap: () => _openImage(m),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: _imageOf(m, w: 180, h: 140),
+        ),
+      );
+    }
+    final content = (m['content'] ?? '').toString();
+    if (type == 'sticker') {
+      final s = findSticker(content);
+      if (s != null) {
+        return SizedBox(width: 130, height: 110, child: stickerCard(s));
+      }
+    }
+    return Text(
+      content,
+      style: TextStyle(color: isMine ? Colors.white : Colors.black87),
+    );
+  }
+
+  PreferredSizeWidget _appBar() {
+    if (_isGroup) {
+      return iqAppBar(
+        center: false,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1621,34 +2828,68 @@ class _Screen5ChatState extends State<Screen5Chat> {
               widget.friendName,
               style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
             ),
-            Row(
-              children: [
-                Text(
-                  widget.friendNumber,
-                  style: const TextStyle(fontSize: 12, color: Colors.white70),
-                  textDirection: TextDirection.ltr,
-                ),
-                const SizedBox(width: 6),
-                Container(
-                  width: 9,
-                  height: 9,
-                  decoration: BoxDecoration(
-                    color: widget.isOnline ? Colors.greenAccent : Colors.white54,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  widget.isOnline ? 'متصل الان' : 'غير متصل',
-                  style: const TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-              ],
+            Text(
+              _names.isEmpty ? 'مجموعة' : '${_names.length} عضو',
+              style: const TextStyle(fontSize: 12, color: kGoldLight),
             ),
           ],
         ),
+        actions: [
+          IconButton(icon: const Icon(Icons.people), onPressed: _showMembers),
+        ],
+      );
+    }
+    return iqAppBar(
+      center: false,
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.friendName,
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+          ),
+          Row(
+            children: [
+              Text(
+                widget.friendNumber,
+                style: const TextStyle(fontSize: 12, color: Colors.white70),
+                textDirection: TextDirection.ltr,
+              ),
+              const SizedBox(width: 6),
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: _online ? Colors.greenAccent : Colors.redAccent,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _online ? 'متصل' : 'غير متصل',
+                style: const TextStyle(fontSize: 12, color: Colors.white70),
+              ),
+            ],
+          ),
+        ],
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = [..._msgs, ..._pending];
+    final maxW = MediaQuery.of(context).size.width * 0.78;
+    OutlineInputBorder ob(Color c, double w) => OutlineInputBorder(
+          borderRadius: BorderRadius.circular(24),
+          borderSide: BorderSide(color: c, width: w),
+        );
+    return Scaffold(
+      backgroundColor: kBeige,
+      appBar: _appBar(),
       body: Stack(
         children: [
+          const GeoPattern(color: Color(0x0F1B3A8F), cell: 54),
           const IshtarWatermark(),
           Column(
             children: [
@@ -1659,158 +2900,151 @@ class _Screen5ChatState extends State<Screen5Chat> {
                       )
                     : ListView.builder(
                         controller: _scroll,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
                         itemCount: shown.length,
                         itemBuilder: (c, i) {
-                          final m = shown[i];
+                          final m = shown[i] as Map;
                           final isMine =
                               m['sender_number'] == LocalStore.personalNumber;
-                          final isImage = m['message_type'] == 'image';
+                          final sender = (m['sender_number'] ?? '').toString();
                           return Align(
                             alignment: isMine
                                 ? Alignment.centerRight
                                 : Alignment.centerLeft,
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 5,
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isMine ? kTurquoise : Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: kGold.withOpacity(0.3),
+                            child: GestureDetector(
+                              onLongPress: (isMine && m['id'] != null)
+                                  ? () => _msgMenu(m)
+                                  : null,
+                              child: Container(
+                                constraints: BoxConstraints(maxWidth: maxW),
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
                                 ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  if (isImage)
-                                    GestureDetector(
-                                      onTap: () => _openImage(m),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(10),
-                                        child: _imageOf(m, w: 180, h: 140),
-                                      ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: isMine ? kMineGradient : null,
+                                  color: isMine ? null : Colors.white,
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: const Radius.circular(18),
+                                    topRight: const Radius.circular(18),
+                                    bottomLeft:
+                                        Radius.circular(isMine ? 18 : 4),
+                                    bottomRight:
+                                        Radius.circular(isMine ? 4 : 18),
+                                  ),
+                                  border: isMine
+                                      ? null
+                                      : Border.all(
+                                          color: kGold.withOpacity(0.45),
+                                        ),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x141B3A8F),
+                                      blurRadius: 6,
+                                      offset: Offset(0, 2),
                                     ),
-                                  if (isImage) const SizedBox(height: 4),
-                                  if (!isImage)
-                                    Text(
-                                      (m['content'] ?? '').toString(),
-                                      style: TextStyle(
-                                        color: isMine
-                                            ? Colors.white
-                                            : Colors.black87,
+                                  ],
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    if (_isGroup && !isMine)
+                                      Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 4),
+                                        child: Text(
+                                          _names[sender] ?? sender,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: kRoyal,
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                  const SizedBox(height: 4),
-                                  _readIcon(m),
-                                ],
+                                    _bubbleBody(m, isMine),
+                                    const SizedBox(height: 4),
+                                    _readIcon(m),
+                                  ],
+                                ),
                               ),
                             ),
                           );
                         },
                       ),
               ),
-              if (_showStickers)
-                Container(
-                  height: 200,
-                  color: Colors.white,
-                  padding: const EdgeInsets.all(10),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'إيموجي',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        Wrap(
-                          spacing: 8,
-                          children: _emojis
-                              .map(
-                                (e) => GestureDetector(
-                                  onTap: () => _sendText(e),
-                                  child: Text(
-                                    e,
-                                    style: const TextStyle(fontSize: 28),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'ملصقات عراقية',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: _iraqiStickers
-                              .map(
-                                (s) => GestureDetector(
-                                  onTap: () => _sendText(s),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 8,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: kBeige,
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(color: kGold),
-                                    ),
-                                    child: Text(s),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                        ),
-                      ],
-                    ),
-                  ),
+              if (_showPanel)
+                StickerPanel(
+                  onEmoji: _insertEmoji,
+                  onSticker: (s) => _send('sticker', s.text),
                 ),
-              Padding(
-                padding: const EdgeInsets.all(10),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(
-                        Icons.emoji_emotions,
-                        color: kRoyal,
-                        size: 28,
+              Container(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(top: BorderSide(color: kGold, width: 1.2)),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.emoji_emotions_outlined,
+                          color: kRoyal,
+                          size: 28,
+                        ),
+                        onPressed: () =>
+                            setState(() => _showPanel = !_showPanel),
                       ),
-                      onPressed: () =>
-                          setState(() => _showStickers = !_showStickers),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.image, color: kRoyal),
-                      onPressed: _sendImage,
-                    ),
-                    Expanded(
-                      child: TextField(
-                        controller: _ctrl,
-                        decoration: const InputDecoration(
-                          hintText: 'اكتب رسالتك...',
-                          border: OutlineInputBorder(),
-                          filled: true,
-                          fillColor: Colors.white,
+                      IconButton(
+                        icon: const Icon(Icons.image_outlined, color: kRoyal),
+                        onPressed: _sendImage,
+                      ),
+                      Expanded(
+                        child: TextField(
+                          controller: _ctrl,
+                          minLines: 1,
+                          maxLines: 4,
+                          decoration: InputDecoration(
+                            hintText: 'اكتب رسالتك...',
+                            filled: true,
+                            fillColor: kBeige,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            border: ob(kGold, 1),
+                            enabledBorder: ob(kGold.withOpacity(0.6), 1),
+                            focusedBorder: ob(kRoyal, 1.6),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    CircleAvatar(
-                      backgroundColor: kRoyal,
-                      child: IconButton(
-                        icon: const Icon(Icons.send, color: Colors.white),
-                        onPressed: () => _sendText(_ctrl.text),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => _sendText(_ctrl.text),
+                        child: Container(
+                          width: 46,
+                          height: 46,
+                          decoration: const BoxDecoration(
+                            gradient: kHeaderGradient,
+                            shape: BoxShape.circle,
+                            border: Border.fromBorderSide(
+                              BorderSide(color: kGold, width: 1.5),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.send,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
